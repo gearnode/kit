@@ -105,6 +105,9 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 		slog.String("http_request_path", reqURL.Path),
 		slog.String("http_request_flavor", req.Proto),
 		slog.String("http_request_scheme", reqURL.Scheme),
+		slog.String("http_request_user_agent", req.UserAgent()),
+		slog.String("trace_id", span.SpanContext().TraceID().String()),
+		slog.String("span_id", span.SpanContext().SpanID().String()),
 	)
 
 	span.SetAttributes(
