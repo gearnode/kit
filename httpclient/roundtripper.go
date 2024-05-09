@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"time"
 
+	"go.gearno.de/crypto/uuid"
 	"go.gearno.de/x/panicf"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -102,6 +103,17 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	reqURL := sanitizeURL(newReq.URL)
 	span := trace.SpanFromContext(ctx)
 	spanCtx := span.SpanContext()
+
+	requestID := newReq.Header.Get("x-request-id")
+	if requestID == "" {
+		id, err := uuid.NewV7()
+		if err != nil {
+			panicf.Panic("cannot generate UUID: %w", err)
+		}
+
+		requestID = id.String()
+	}
+
 	logger := rt.logger.With(
 		slog.String("http_request_method", newReq.Method),
 		slog.String("http_request_host", reqURL.Host),
@@ -111,6 +123,7 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 		slog.String("http_request_user_agent", newReq.UserAgent()),
 		slog.String("trace_id", spanCtx.TraceID().String()),
 		slog.String("span_id", spanCtx.SpanID().String()),
+		slog.String("http_request_id", requestID),
 	)
 
 	span.SetAttributes(
@@ -122,6 +135,7 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 		attribute.String("http.flavor", newReq.Proto),
 		attribute.String("http.client_ip", newReq.RemoteAddr),
 		attribute.String("http.user_agent", newReq.UserAgent()),
+		attribute.String("http.request_id", requestID),
 	)
 
 	newReq.Header.Set(
