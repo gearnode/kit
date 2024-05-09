@@ -97,31 +97,50 @@ func NewTelemetryRoundTripper(next http.RoundTripper, logger *slog.Logger, meter
 func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	start := time.Now()
 	ctx := req.Context()
-	reqURL := sanitizeURL(req.URL)
+	newReq := req.Clone(ctx)
+
+	reqURL := sanitizeURL(newReq.URL)
 	span := trace.SpanFromContext(ctx)
+	spanCtx := span.SpanContext()
 	logger := rt.logger.With(
-		slog.String("http_request_method", req.Method),
+		slog.String("http_request_method", newReq.Method),
 		slog.String("http_request_host", reqURL.Host),
 		slog.String("http_request_path", reqURL.Path),
-		slog.String("http_request_flavor", req.Proto),
+		slog.String("http_request_flavor", newReq.Proto),
 		slog.String("http_request_scheme", reqURL.Scheme),
-		slog.String("http_request_user_agent", req.UserAgent()),
-		slog.String("trace_id", span.SpanContext().TraceID().String()),
-		slog.String("span_id", span.SpanContext().SpanID().String()),
+		slog.String("http_request_user_agent", newReq.UserAgent()),
+		slog.String("trace_id", spanCtx.TraceID().String()),
+		slog.String("span_id", spanCtx.SpanID().String()),
 	)
 
 	span.SetAttributes(
-		attribute.String("http.method", req.Method),
+		attribute.String("http.method", newReq.Method),
 		attribute.String("http.url", reqURL.String()),
 		attribute.String("http.target", reqURL.Path),
-		attribute.String("http.host", req.Host),
+		attribute.String("http.host", newReq.Host),
 		attribute.String("http.scheme", reqURL.Scheme),
-		attribute.String("http.flavor", req.Proto),
-		attribute.String("http.client_ip", req.RemoteAddr),
-		attribute.String("http.user_agent", req.UserAgent()),
+		attribute.String("http.flavor", newReq.Proto),
+		attribute.String("http.client_ip", newReq.RemoteAddr),
+		attribute.String("http.user_agent", newReq.UserAgent()),
 	)
 
-	resp, err := rt.next.RoundTrip(req)
+	newReq.Header.Set(
+		"traceparent",
+		fmt.Sprintf(
+			"%s-%s-%s-%s",
+			"00",
+			spanCtx.TraceID().String(),
+			spanCtx.SpanID().String(),
+			spanCtx.TraceFlags().String(),
+		),
+	)
+
+	newReq.Header.Set(
+		"tracestate",
+		spanCtx.TraceState().String(),
+	)
+
+	resp, err := rt.next.RoundTrip(newReq)
 	if err != nil {
 		logger.ErrorContext(ctx, "cannot execute http transaction", slog.Any("error", err))
 
@@ -138,10 +157,10 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 
 	duration := time.Since(start)
 	metricAttributes := metric.WithAttributes(
-		attribute.String("http_request_method", req.Method),
+		attribute.String("http_request_method", newReq.Method),
 		attribute.String("http_request_host", reqURL.Host),
 		attribute.String("http_request_path", reqURL.Path),
-		attribute.String("http_request_flavor", req.Proto),
+		attribute.String("http_request_flavor", newReq.Proto),
 		attribute.String("http_request_scheme", reqURL.Scheme),
 		attribute.Int("http_response_status_code", resp.StatusCode),
 	)
@@ -150,7 +169,7 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	rt.latency.Record(ctx, duration.Seconds(), metricAttributes)
 
 	logLevel := slog.LevelInfo
-	logMessage := fmt.Sprintf("%s %s %d %s", req.Method, reqURL.String(), resp.StatusCode, duration)
+	logMessage := fmt.Sprintf("%s %s %d %s", newReq.Method, reqURL.String(), resp.StatusCode, duration)
 	if resp.StatusCode >= http.StatusInternalServerError {
 		logLevel = slog.LevelError
 	}
@@ -164,6 +183,7 @@ func sanitizeURL(u *url.URL) *url.URL {
 	u2 := *u
 	u2.RawQuery = ""
 	u2.RawFragment = ""
+	u2.User = nil
 
 	return &u2
 }
