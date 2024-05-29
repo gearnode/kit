@@ -18,12 +18,12 @@ package httpclient
 
 import (
 	"crypto/tls"
-	"log/slog"
 	"net"
 	"net/http"
 	"runtime"
 	"time"
 
+	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -36,7 +36,7 @@ type (
 	// within the package. This includes logging, metrics, and TLS
 	// configurations.
 	Options struct {
-		logger    *slog.Logger // Logger for structured logging.
+		logger    *log.Logger  // Logger for structured logging.
 		meter     metric.Meter // Meter for collecting telemetry data.
 		tlsConfig *tls.Config  // TLS configuration for HTTPS connections.
 	}
@@ -52,7 +52,7 @@ func WithTLSConfig(c *tls.Config) Option {
 
 // WithLogger is an option setter for specifying a logger for HTTP
 // telemetry and error logging.
-func WithLogger(l *slog.Logger) Option {
+func WithLogger(l *log.Logger) Option {
 	return func(o *Options) {
 		o.logger = l
 	}

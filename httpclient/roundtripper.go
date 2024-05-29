@@ -19,12 +19,12 @@ package httpclient
 import (
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
 
 	"go.gearno.de/crypto/uuid"
+	"go.gearno.de/kit/log"
 	"go.gearno.de/x/panicf"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -39,7 +39,7 @@ type (
 	// logs requests, measures request latency, and counts
 	// requests using specified telemetry tools.
 	TelemetryRoundTripper struct {
-		logger   *slog.Logger
+		logger   *log.Logger
 		meter    metric.Meter
 		requests metric.Int64Counter
 		latency  metric.Float64Histogram
@@ -56,9 +56,9 @@ var (
 // initializes and registers telemetry instruments for counting
 // requests and measuring request latency.  It uses fallbacks for the
 // logger and meter if nil references are provided.
-func NewTelemetryRoundTripper(next http.RoundTripper, logger *slog.Logger, meter metric.Meter) *TelemetryRoundTripper {
+func NewTelemetryRoundTripper(next http.RoundTripper, logger *log.Logger, meter metric.Meter) *TelemetryRoundTripper {
 	if logger == nil {
-		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+		logger = log.NewLogger(log.WithOutput(io.Discard))
 	}
 
 	if meter == nil {
@@ -115,15 +115,13 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	}
 
 	logger := rt.logger.With(
-		slog.String("http_request_method", newReq.Method),
-		slog.String("http_request_host", reqURL.Host),
-		slog.String("http_request_path", reqURL.Path),
-		slog.String("http_request_flavor", newReq.Proto),
-		slog.String("http_request_scheme", reqURL.Scheme),
-		slog.String("http_request_user_agent", newReq.UserAgent()),
-		slog.String("trace_id", spanCtx.TraceID().String()),
-		slog.String("span_id", spanCtx.SpanID().String()),
-		slog.String("http_request_id", requestID),
+		log.String("http_request_method", newReq.Method),
+		log.String("http_request_host", reqURL.Host),
+		log.String("http_request_path", reqURL.Path),
+		log.String("http_request_flavor", newReq.Proto),
+		log.String("http_request_scheme", reqURL.Scheme),
+		log.String("http_request_user_agent", newReq.UserAgent()),
+		log.String("http_request_id", requestID),
 	)
 
 	span.SetAttributes(
@@ -156,7 +154,7 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 
 	resp, err := rt.next.RoundTrip(newReq)
 	if err != nil {
-		logger.ErrorContext(ctx, "cannot execute http transaction", slog.Any("error", err))
+		logger.ErrorCtx(ctx, "cannot execute http transaction", log.Any("error", err))
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -182,13 +180,13 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	rt.requests.Add(ctx, 1, metricAttributes)
 	rt.latency.Record(ctx, duration.Seconds(), metricAttributes)
 
-	logLevel := slog.LevelInfo
+	logLevel := log.LevelInfo
 	logMessage := fmt.Sprintf("%s %s %d %s", newReq.Method, reqURL.String(), resp.StatusCode, duration)
 	if resp.StatusCode >= http.StatusInternalServerError {
-		logLevel = slog.LevelError
+		logLevel = log.LevelError
 	}
 
-	logger.Log(ctx, logLevel, logMessage, slog.Int("http_response_status_code", resp.StatusCode))
+	logger.Log(ctx, logLevel, logMessage, log.Int("http_response_status_code", resp.StatusCode))
 
 	return resp, nil
 }

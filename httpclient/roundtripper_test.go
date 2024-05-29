@@ -24,10 +24,9 @@ import (
 	"net/url"
 	"testing"
 
-	"log/slog"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel/metric/noop"
 )
 
@@ -47,7 +46,7 @@ func TestNewTelemetryRoundTripper(t *testing.T) {
 
 func TestRoundTrip(t *testing.T) {
 	mockRT := new(MockRoundTripper)
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	logger := log.NewLogger(log.WithOutput(io.Discard))
 	meter := noop.Meter{}
 
 	tr := NewTelemetryRoundTripper(mockRT, logger, meter)
