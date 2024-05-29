@@ -21,6 +21,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"time"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -35,6 +36,17 @@ type (
 	}
 
 	Option func(l *Logger)
+
+	Level = slog.Level
+
+	Attr = slog.Attr
+)
+
+var (
+	LevelInfo  = slog.LevelInfo
+	LevelError = slog.LevelError
+	LevelWarn  = slog.LevelWarn
+	LevelDebug = slog.LevelDebug
 )
 
 func WithLevel(level slog.Level) Option {
@@ -60,6 +72,42 @@ func WithAttributes(args ...any) Option {
 	return func(l *Logger) {
 		l.attributes = args
 	}
+}
+
+func Any(k string, v any) Attr {
+	return slog.Any(k, v)
+}
+
+func Bool(k string, v bool) Attr {
+	return slog.Bool(k, v)
+}
+
+func Duration(k string, v time.Duration) Attr {
+	return slog.Duration(k, v)
+}
+
+func Float64(k string, v float64) Attr {
+	return slog.Float64(k, v)
+}
+
+func Int(k string, v int) Attr {
+	return slog.Int(k, v)
+}
+
+func Int64(k string, v int64) Attr {
+	return slog.Int64(k, v)
+}
+
+func String(k, v string) Attr {
+	return slog.String(k, v)
+}
+
+func Time(k string, v time.Time) Attr {
+	return slog.Time(k, v)
+}
+
+func Uint64(k string, v uint64) Attr {
+	return slog.Uint64(k, v)
 }
 
 func NewLogger(options ...Option) *Logger {
@@ -100,7 +148,7 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 	return NewLogger(options...)
 }
 
-func (l *Logger) Log(ctx context.Context, level slog.Level, msg string, args ...any) {
+func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...any) {
 	var (
 		span    = trace.SpanFromContext(ctx)
 		spanCtx = span.SpanContext()
@@ -118,33 +166,33 @@ func (l *Logger) Log(ctx context.Context, level slog.Level, msg string, args ...
 }
 
 func (l *Logger) Info(msg string, args ...any) {
-	l.Log(context.Background(), slog.LevelInfo, msg, args...)
+	l.Log(context.Background(), LevelInfo, msg, args...)
 }
 
 func (l *Logger) InfoCtx(ctx context.Context, msg string, args ...any) {
-	l.Log(ctx, slog.LevelInfo, msg, args...)
+	l.Log(ctx, LevelInfo, msg, args...)
 }
 
 func (l *Logger) Error(msg string, args ...any) {
-	l.Log(context.Background(), slog.LevelError, msg, args...)
+	l.Log(context.Background(), LevelError, msg, args...)
 }
 
 func (l *Logger) ErrorCtx(ctx context.Context, msg string, args ...any) {
-	l.Log(ctx, slog.LevelError, msg, args...)
+	l.Log(ctx, LevelError, msg, args...)
 }
 
 func (l *Logger) Warn(msg string, args ...any) {
-	l.Log(context.Background(), slog.LevelWarn, msg, args...)
+	l.Log(context.Background(), LevelWarn, msg, args...)
 }
 
 func (l *Logger) WarnCtx(ctx context.Context, msg string, args ...any) {
-	l.Log(ctx, slog.LevelWarn, msg, args...)
+	l.Log(ctx, LevelWarn, msg, args...)
 }
 
 func (l *Logger) Debug(msg string, args ...any) {
-	l.Log(context.Background(), slog.LevelDebug, msg, args...)
+	l.Log(context.Background(), LevelDebug, msg, args...)
 }
 
 func (l *Logger) DebugCtx(ctx context.Context, msg string, args ...any) {
-	l.Log(ctx, slog.LevelDebug, msg, args...)
+	l.Log(ctx, LevelDebug, msg, args...)
 }
