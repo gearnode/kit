@@ -110,6 +110,10 @@ func Uint64(k string, v uint64) Attr {
 	return slog.Uint64(k, v)
 }
 
+func Error(err error) Attr {
+	return String("error", err.Error())
+}
+
 func NewLogger(options ...Option) *Logger {
 	l := &Logger{
 		output: os.Stderr,
