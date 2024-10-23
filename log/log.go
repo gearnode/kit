@@ -152,7 +152,7 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 	return NewLogger(options...)
 }
 
-func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...any) {
+func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr) {
 	var (
 		span    = trace.SpanFromContext(ctx)
 		spanCtx = span.SpanContext()
@@ -166,37 +166,37 @@ func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...any) 
 		slog.String("span_id", spanID),
 	)
 
-	l.logger.Log(ctx, level, msg, args...)
+	l.logger.LogAttrs(ctx, level, msg, args...)
 }
 
-func (l *Logger) Info(msg string, args ...any) {
+func (l *Logger) Info(msg string, args ...Attr) {
 	l.Log(context.Background(), LevelInfo, msg, args...)
 }
 
-func (l *Logger) InfoCtx(ctx context.Context, msg string, args ...any) {
+func (l *Logger) InfoCtx(ctx context.Context, msg string, args ...Attr) {
 	l.Log(ctx, LevelInfo, msg, args...)
 }
 
-func (l *Logger) Error(msg string, args ...any) {
+func (l *Logger) Error(msg string, args ...Attr) {
 	l.Log(context.Background(), LevelError, msg, args...)
 }
 
-func (l *Logger) ErrorCtx(ctx context.Context, msg string, args ...any) {
+func (l *Logger) ErrorCtx(ctx context.Context, msg string, args ...Attr) {
 	l.Log(ctx, LevelError, msg, args...)
 }
 
-func (l *Logger) Warn(msg string, args ...any) {
+func (l *Logger) Warn(msg string, args ...Attr) {
 	l.Log(context.Background(), LevelWarn, msg, args...)
 }
 
-func (l *Logger) WarnCtx(ctx context.Context, msg string, args ...any) {
+func (l *Logger) WarnCtx(ctx context.Context, msg string, args ...Attr) {
 	l.Log(ctx, LevelWarn, msg, args...)
 }
 
-func (l *Logger) Debug(msg string, args ...any) {
+func (l *Logger) Debug(msg string, args ...Attr) {
 	l.Log(context.Background(), LevelDebug, msg, args...)
 }
 
-func (l *Logger) DebugCtx(ctx context.Context, msg string, args ...any) {
+func (l *Logger) DebugCtx(ctx context.Context, msg string, args ...Attr) {
 	l.Log(ctx, LevelDebug, msg, args...)
 }
