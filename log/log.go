@@ -153,18 +153,21 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 }
 
 func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr) {
-	var (
-		span    = trace.SpanFromContext(ctx)
-		spanCtx = span.SpanContext()
-		traceID = spanCtx.TraceID().String()
-		spanID  = spanCtx.SpanID().String()
-	)
+	span := trace.SpanFromContext(ctx)
 
-	args = append(
-		args,
-		slog.String("trace_id", traceID),
-		slog.String("span_id", spanID),
-	)
+	if span.IsRecording() {
+		var (
+			spanCtx = span.SpanContext()
+			traceID = spanCtx.TraceID().String()
+			spanID  = spanCtx.SpanID().String()
+		)
+
+		args = append(
+			args,
+			slog.String("trace_id", traceID),
+			slog.String("span_id", spanID),
+		)
+	}
 
 	l.logger.LogAttrs(ctx, level, msg, args...)
 }
