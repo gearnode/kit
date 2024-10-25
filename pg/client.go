@@ -60,7 +60,7 @@ type (
 
 func WithLogger(l *log.Logger) Option {
 	return func(c *Client) {
-		c.logger = l.Named("pg.client")
+		c.logger = l
 	}
 }
 
