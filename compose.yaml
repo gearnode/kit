@@ -32,7 +32,7 @@ services:
     image: "grafana/grafana:latest"
     user: "root"
     ports:
-      - "3001:3000"
+      - "3000:3000"
     volumes:
       - "./compose/grafana/provisioning:/etc/grafana/provisioning:ro"
       - "grafana-data:/var/lib/grafana:rw"
