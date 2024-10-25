@@ -74,7 +74,7 @@ func newCollector(pool *pgxpool.Pool, labels map[string]string) *collector {
 		),
 		constructingConnections: prometheus.NewDesc(
 			"pgxpool_constructing_connections",
-			"Number of conns with construction in progress in the pool.",
+			"Number of connections with construction in progress in the pool.",
 			nil,
 			labels,
 		),
@@ -86,7 +86,7 @@ func newCollector(pool *pgxpool.Pool, labels map[string]string) *collector {
 		),
 		idleConnections: prometheus.NewDesc(
 			"pgxpool_idle_connections",
-			"Number of currently idle conns in the pool.",
+			"Number of currently idle connections in the pool.",
 			nil,
 			labels,
 		),
@@ -110,7 +110,7 @@ func newCollector(pool *pgxpool.Pool, labels map[string]string) *collector {
 		),
 		maxLifetimeDestroyTotal: prometheus.NewDesc(
 			"pgxpool_max_lifetime_destroy_total",
-			"Cumulative count of connections destroyed because they exceeded MaxConnLifetime. ",
+			"Cumulative count of connections destroyed because they exceeded MaxConnLifetime.",
 			nil,
 			labels,
 		),
