@@ -27,6 +27,8 @@ import (
 )
 
 type (
+	// Logger represents a structured logger with tracing and
+	// flexible output configuration.
 	Logger struct {
 		logger     *slog.Logger
 		output     io.Writer
@@ -35,10 +37,14 @@ type (
 		attributes []Attr
 	}
 
+	// Option configures Logger during initialization.
 	Option func(l *Logger)
 
+	// Level defines log levels for filtering log messages.
 	Level = slog.Level
 
+	// Attr represents an attribute (key-value pair) added to log
+	// entries for structured logging.
 	Attr = slog.Attr
 )
 
@@ -49,12 +55,14 @@ var (
 	LevelDebug = slog.LevelDebug
 )
 
+// WithLevel sets the logging level for the Logger.
 func WithLevel(level slog.Level) Option {
 	return func(l *Logger) {
 		l.level.Set(level)
 	}
 }
 
+// WithOutput directs the log output to the specified io.Writer.
 func WithOutput(w io.Writer) Option {
 	return func(l *Logger) {
 		l.output = w
@@ -62,58 +70,75 @@ func WithOutput(w io.Writer) Option {
 
 }
 
+// WithName assigns a name to the Logger, useful for identifying the
+// logging source in a multi-module setup.
 func WithName(name string) Option {
 	return func(l *Logger) {
 		l.path = name
 	}
 }
 
+// WithAttributes assigns default attributes to all log entries for
+// the Logger.
 func WithAttributes(attrs ...Attr) Option {
 	return func(l *Logger) {
 		l.attributes = attrs
 	}
 }
 
+// Any creates a key-value attribute with any data type.
 func Any(k string, v any) Attr {
 	return slog.Any(k, v)
 }
 
+// Bool creates a boolean attribute.
 func Bool(k string, v bool) Attr {
 	return slog.Bool(k, v)
 }
 
+// Duration creates a duration attribute.
 func Duration(k string, v time.Duration) Attr {
 	return slog.Duration(k, v)
 }
 
+// Float64 creates a float64 attribute.
 func Float64(k string, v float64) Attr {
 	return slog.Float64(k, v)
 }
 
+// Int creates an integer attribute.
 func Int(k string, v int) Attr {
 	return slog.Int(k, v)
 }
 
+// Int64 creates an int64 attribute.
 func Int64(k string, v int64) Attr {
 	return slog.Int64(k, v)
 }
 
+// String creates a string attribute.
 func String(k, v string) Attr {
 	return slog.String(k, v)
 }
 
+// Time creates a time attribute.
 func Time(k string, v time.Time) Attr {
 	return slog.Time(k, v)
 }
 
+// Uint64 creates a uint64 attribute.
 func Uint64(k string, v uint64) Attr {
 	return slog.Uint64(k, v)
 }
 
+// Error creates an attribute from an error, storing the error message
+// as a string.
 func Error(err error) Attr {
 	return String("error", err.Error())
 }
 
+// NewLogger initializes a new Logger with optional configurations for
+// level, output, and default attributes.
 func NewLogger(options ...Option) *Logger {
 	l := &Logger{
 		output: os.Stderr,
@@ -136,10 +161,14 @@ func NewLogger(options ...Option) *Logger {
 	return l
 }
 
+// With returns a new Logger with additional attributes, keeping the
+// original Logger’s name and settings.
 func (l *Logger) With(attrs ...Attr) *Logger {
 	return NewLogger(WithName(l.path), WithAttributes(attrs...))
 }
 
+// Named returns a new Logger with a modified name, appending the
+// given name to the current Logger’s path.
 func (l *Logger) Named(name string, options ...Option) *Logger {
 	newPath := l.path
 	if newPath != "" {
@@ -152,6 +181,8 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 	return NewLogger(options...)
 }
 
+// Log logs a message at the specified level with optional attributes,
+// adding trace and span IDs if the context has a span.
 func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr) {
 	span := trace.SpanFromContext(ctx)
 
@@ -172,34 +203,46 @@ func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr)
 	l.logger.LogAttrs(ctx, level, msg, args...)
 }
 
+// Info logs an informational message with optional attributes.
 func (l *Logger) Info(msg string, args ...Attr) {
 	l.Log(context.Background(), LevelInfo, msg, args...)
 }
 
+// InfoCtx logs an informational message with tracing, using the
+// provided context and attributes.
 func (l *Logger) InfoCtx(ctx context.Context, msg string, args ...Attr) {
 	l.Log(ctx, LevelInfo, msg, args...)
 }
 
+// Error logs an error message with optional attributes.
 func (l *Logger) Error(msg string, args ...Attr) {
 	l.Log(context.Background(), LevelError, msg, args...)
 }
 
+// ErrorCtx logs an error message with tracing, using the provided
+// context and attributes.
 func (l *Logger) ErrorCtx(ctx context.Context, msg string, args ...Attr) {
 	l.Log(ctx, LevelError, msg, args...)
 }
 
+// Warn logs a warning message with optional attributes.
 func (l *Logger) Warn(msg string, args ...Attr) {
 	l.Log(context.Background(), LevelWarn, msg, args...)
 }
 
+// WarnCtx logs a warning message with tracing, using the provided
+// context and attributes.
 func (l *Logger) WarnCtx(ctx context.Context, msg string, args ...Attr) {
 	l.Log(ctx, LevelWarn, msg, args...)
 }
 
+// Debug logs a debug message with optional attributes.
 func (l *Logger) Debug(msg string, args ...Attr) {
 	l.Log(context.Background(), LevelDebug, msg, args...)
 }
 
+// DebugCtx logs a debug message with tracing, using the provided
+// context and attributes.
 func (l *Logger) DebugCtx(ctx context.Context, msg string, args ...Attr) {
 	l.Log(ctx, LevelDebug, msg, args...)
 }
