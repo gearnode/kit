@@ -24,6 +24,9 @@ import (
 )
 
 type (
+	// Conn represents a PostgreSQL connection with basic methods
+	// for executing SQL commands, querying rows, performing bulk copy
+	// operations, and sending batch requests.
 	Conn interface {
 		Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 

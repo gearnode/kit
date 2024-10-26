@@ -35,8 +35,12 @@ import (
 )
 
 type (
+	// Option is a function that configures the Client during
+	// initialization.
 	Option func(c *Client)
 
+	// Client provides a PostgreSQL client with a connection pool,
+	// logging, tracing, and Prometheus metrics registration.
 	Client struct {
 		addr     string
 		user     string
@@ -58,36 +62,43 @@ type (
 	ExecFunc func(Conn) error
 )
 
+// WithLogger sets a custom logger.
 func WithLogger(l *log.Logger) Option {
 	return func(c *Client) {
 		c.logger = l
 	}
 }
 
+// WithAddr specifies the database address in "host:port" format.
 func WithAddr(addr string) Option {
 	return func(c *Client) {
 		c.addr = addr
 	}
 }
 
+// WithUser sets the database user.
 func WithUser(user string) Option {
 	return func(c *Client) {
 		c.user = user
 	}
 }
 
+// WithPassword sets the database password.
 func WithPassword(password string) Option {
 	return func(c *Client) {
 		c.password = password
 	}
 }
 
+// WithDatabase specifies the database to connect to.
 func WithDatabase(database string) Option {
 	return func(c *Client) {
 		c.database = database
 	}
 }
 
+// WithTLS configures TLS using the provided certificate for secure
+// connections.
 func WithTLS(cert *x509.Certificate) Option {
 	return func(c *Client) {
 		rootCAs := x509.NewCertPool()
@@ -100,18 +111,48 @@ func WithTLS(cert *x509.Certificate) Option {
 	}
 }
 
+// WithTracerProvider configures OpenTelemetry tracing with the
+// provided tracer provider.
 func WithTracerProvider(tp trace.TracerProvider) Option {
 	return func(c *Client) {
 		c.tracerProvider = tp
 	}
 }
 
+// WithRegisterer sets a custom Prometheus registerer for metrics.
 func WithRegisterer(r prometheus.Registerer) Option {
 	return func(c *Client) {
 		c.registerer = r
 	}
 }
 
+// NewClient creates a new database client with customizable options
+// for logging, tracing, TLS, and Prometheus metrics.
+//
+// Default settings:
+// - `addr` defaults to "localhost:5432".
+// - `user` and `database` default to "postgres".
+// - `poolSize` defaults to 10.
+//
+// Example:
+//
+//	client, err := pg.NewClient(
+//	    pg.WithAddr("db.example.com:5432"),
+//	    pg.WithUser("dbuser"),
+//	    pg.WithPassword("password"),
+//	)
+//	if err != nil {
+//	    panic(err)
+//	}
+//
+// Options:
+// - WithLogger: Sets a custom logger.
+// - WithAddr: Sets the database address.
+// - WithUser, WithPassword: Sets the database user credentials.
+// - WithDatabase: Sets the target database.
+// - WithTLS: Configures TLS with a specified certificate.
+// - WithTracerProvider: Integrates OpenTelemetry tracing.
+// - WithRegisterer: Sets a custom Prometheus registerer.
 func NewClient(options ...Option) (*Client, error) {
 	c := &Client{
 		addr:           "localhost:5432",
@@ -183,10 +224,23 @@ func NewClient(options ...Option) (*Client, error) {
 	return c, nil
 }
 
+// Close closes the client's connection pool, releasing all resources.
 func (c *Client) Close() {
 	c.pool.Close()
 }
 
+// WithConn executes the given ExecFunc with a database connection
+// from the pool.
+//
+// Example:
+//
+//	err := client.WithConn(ctx, func(conn pg.Conn) error {
+//	    _, err := conn.Exec(ctx, "SELECT * FROM users")
+//	    return err
+//	})
+//
+// If tracing is enabled, this method creates a span named "WithConn"
+// and logs any errors.
 func (c *Client) WithConn(
 	ctx context.Context,
 	exec ExecFunc,
@@ -223,6 +277,22 @@ func (c *Client) WithConn(
 	return nil
 }
 
+// WithTx executes the given ExecFunc within a transaction. This
+// method begins a transaction, executing `exec` within it. If `exec`
+// returns an error, the transaction is rolled back; otherwise, it
+// commits.
+//
+// Example:
+//
+//	err := client.WithTx(ctx, func(tx pg.Conn) error {
+//	    if _, err := tx.Exec(ctx, "DELETE FROM users WHERE id = $1 ", id); err != nil {
+//	        return err
+//	    }
+//	    return nil
+//	})
+//
+// If tracing is enabled, this method creates a span named "WithTx"
+// and logs any errors.
 func (c *Client) WithTx(
 	ctx context.Context,
 	exec ExecFunc,
