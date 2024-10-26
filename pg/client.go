@@ -129,11 +129,6 @@ func WithRegisterer(r prometheus.Registerer) Option {
 // NewClient creates a new database client with customizable options
 // for logging, tracing, TLS, and Prometheus metrics.
 //
-// Default settings:
-// - `addr` defaults to "localhost:5432".
-// - `user` and `database` default to "postgres".
-// - `poolSize` defaults to 10.
-//
 // Example:
 //
 //	client, err := pg.NewClient(
@@ -144,15 +139,6 @@ func WithRegisterer(r prometheus.Registerer) Option {
 //	if err != nil {
 //	    panic(err)
 //	}
-//
-// Options:
-// - WithLogger: Sets a custom logger.
-// - WithAddr: Sets the database address.
-// - WithUser, WithPassword: Sets the database user credentials.
-// - WithDatabase: Sets the target database.
-// - WithTLS: Configures TLS with a specified certificate.
-// - WithTracerProvider: Integrates OpenTelemetry tracing.
-// - WithRegisterer: Sets a custom Prometheus registerer.
 func NewClient(options ...Option) (*Client, error) {
 	c := &Client{
 		addr:           "localhost:5432",
