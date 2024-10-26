@@ -32,7 +32,7 @@ type (
 		output     io.Writer
 		path       string
 		level      *slog.LevelVar
-		attributes []any
+		attributes []Attr
 	}
 
 	Option func(l *Logger)
@@ -68,9 +68,9 @@ func WithName(name string) Option {
 	}
 }
 
-func WithAttributes(args ...any) Option {
+func WithAttributes(attrs ...Attr) Option {
 	return func(l *Logger) {
-		l.attributes = args
+		l.attributes = attrs
 	}
 }
 
@@ -129,15 +129,15 @@ func NewLogger(options ...Option) *Logger {
 		&slog.HandlerOptions{
 			Level: l.level,
 		},
-	)
+	).WithAttrs(l.attributes)
 
-	l.logger = slog.New(handler).With(l.attributes...)
+	l.logger = slog.New(handler)
 
 	return l
 }
 
-func (l *Logger) With(args ...any) *Logger {
-	return NewLogger(WithName(l.path), WithAttributes(args...))
+func (l *Logger) With(attrs ...Attr) *Logger {
+	return NewLogger(WithName(l.path), WithAttributes(attrs...))
 }
 
 func (l *Logger) Named(name string, options ...Option) *Logger {
