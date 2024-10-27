@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 
@@ -65,7 +66,7 @@ type (
 // WithLogger sets a custom logger.
 func WithLogger(l *log.Logger) Option {
 	return func(c *Client) {
-		c.logger = l
+		c.logger = l.Named("pg.client")
 	}
 }
 
@@ -145,7 +146,7 @@ func NewClient(options ...Option) (*Client, error) {
 		user:           "postgres",
 		database:       "postgres",
 		poolSize:       10,
-		logger:         log.NewLogger(log.WithName("pg.client")),
+		logger:         log.NewLogger(log.WithOutput(io.Discard)),
 		tracerProvider: otel.GetTracerProvider(),
 		registerer:     prometheus.DefaultRegisterer,
 	}
