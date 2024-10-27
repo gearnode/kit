@@ -30,6 +30,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.gearno.de/kit/internal/version"
 	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -178,7 +179,7 @@ func NewClient(options ...Option) (*Client, error) {
 	c.tracer = c.tracerProvider.Tracer(
 		tracerName,
 		trace.WithInstrumentationVersion(
-			findOwnImportedVersion(),
+			version.New(0).Alpha(1),
 		),
 	)
 
