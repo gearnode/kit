@@ -200,7 +200,7 @@ func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr)
 		)
 	}
 
-	l.logger.LogAttrs(ctx, level, msg, args...)
+	l.logger.LogAttrs(ctx, level, msg, append(l.attributes, args...)...)
 }
 
 // Info logs an informational message with optional attributes.
