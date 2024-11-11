@@ -18,13 +18,16 @@ package httpclient
 
 import (
 	"crypto/tls"
+	"io"
 	"net"
 	"net/http"
 	"runtime"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.gearno.de/kit/log"
-	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type (
@@ -36,10 +39,16 @@ type (
 	// within the package. This includes logging, metrics, and TLS
 	// configurations.
 	Options struct {
-		logger    *log.Logger  // Logger for structured logging.
-		meter     metric.Meter // Meter for collecting telemetry data.
-		tlsConfig *tls.Config  // TLS configuration for HTTPS connections.
+		tlsConfig *tls.Config
+
+		tracerProvider trace.TracerProvider
+		logger         *log.Logger
+		registerer     prometheus.Registerer
 	}
+)
+
+const (
+	tracerName = "go.gearno.de/kit/httpclient"
 )
 
 // WithTLSConfig is an option setter for setting TLS configurations on
@@ -54,15 +63,22 @@ func WithTLSConfig(c *tls.Config) Option {
 // telemetry and error logging.
 func WithLogger(l *log.Logger) Option {
 	return func(o *Options) {
-		o.logger = l
+		o.logger = l.Named("http.client")
 	}
 }
 
-// WithMeter is an option setter for specifying a meter to enable
-// telemetry data collection on HTTP requests.
-func WithMeter(m metric.Meter) Option {
+// WithTracerProvider configures OpenTelemetry tracing with the
+// provided tracer provider.
+func WithTracerProvider(tp trace.TracerProvider) Option {
 	return func(o *Options) {
-		o.meter = m
+		o.tracerProvider = tp
+	}
+}
+
+// WithRegisterer sets a custom Prometheus registerer for metrics.
+func WithRegisterer(r prometheus.Registerer) Option {
+	return func(o *Options) {
+		o.registerer = r
 	}
 }
 
@@ -77,7 +93,7 @@ func DefaultTransport(options ...Option) http.RoundTripper {
 	transport.MaxIdleConnsPerHost = -1
 	transport.TLSClientConfig = opts.tlsConfig
 
-	return NewTelemetryRoundTripper(transport, opts.logger, opts.meter)
+	return NewTelemetryRoundTripper(transport, opts.logger, opts.tracerProvider, opts.registerer)
 }
 
 // DefaultPooledTransport returns a new http.Transport with similar
@@ -92,7 +108,7 @@ func DefaultPooledTransport(options ...Option) http.RoundTripper {
 	transport.MaxIdleConnsPerHost = runtime.GOMAXPROCS(0) + 1
 	transport.TLSClientConfig = opts.tlsConfig
 
-	return NewTelemetryRoundTripper(transport, opts.logger, opts.meter)
+	return NewTelemetryRoundTripper(transport, opts.logger, opts.tracerProvider, opts.registerer)
 }
 
 // DefaultClient returns a new http.Client with similar default values
@@ -133,9 +149,15 @@ func createBaseTransport() *http.Transport {
 }
 
 func configureOptions(options []Option) *Options {
-	opts := &Options{}
+	opts := &Options{
+		logger:         log.NewLogger(log.WithOutput(io.Discard)),
+		tracerProvider: otel.GetTracerProvider(),
+		registerer:     prometheus.DefaultRegisterer,
+	}
+
 	for _, o := range options {
 		o(opts)
 	}
+
 	return opts
 }

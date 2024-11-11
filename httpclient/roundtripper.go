@@ -18,18 +18,19 @@ package httpclient
 
 import (
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
+	"strconv"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.gearno.de/crypto/uuid"
+	"go.gearno.de/kit/internal/version"
 	"go.gearno.de/kit/log"
-	"go.gearno.de/x/panicf"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/noop"
+	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -39,11 +40,13 @@ type (
 	// logs requests, measures request latency, and counts
 	// requests using specified telemetry tools.
 	TelemetryRoundTripper struct {
-		logger   *log.Logger
-		meter    metric.Meter
-		requests metric.Int64Counter
-		latency  metric.Float64Histogram
-		next     http.RoundTripper
+		logger *log.Logger
+		tracer trace.Tracer
+
+		requestsTotal          *prometheus.CounterVec
+		requestDurationSeconds *prometheus.HistogramVec
+
+		next http.RoundTripper
 	}
 )
 
@@ -56,37 +59,50 @@ var (
 // initializes and registers telemetry instruments for counting
 // requests and measuring request latency.  It uses fallbacks for the
 // logger and meter if nil references are provided.
-func NewTelemetryRoundTripper(next http.RoundTripper, logger *log.Logger, meter metric.Meter) *TelemetryRoundTripper {
-	if logger == nil {
-		logger = log.NewLogger(log.WithOutput(io.Discard))
+func NewTelemetryRoundTripper(
+	next http.RoundTripper,
+	logger *log.Logger,
+	tp trace.TracerProvider,
+	registerer prometheus.Registerer,
+) *TelemetryRoundTripper {
+	metricLabels := []string{
+		"method",
+		"host",
+		"flavor",
+		"scheme",
+		"status_code",
 	}
 
-	if meter == nil {
-		meter = noop.Meter{}
-	}
-
-	requests, err := meter.Int64Counter(
-		"http_requests_total",
-		metric.WithDescription("Total number of HTTP requests by status code"),
+	requestsTotal := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total number of HTTP requests made.",
+		},
+		metricLabels,
 	)
-	if err != nil {
-		panicf.Panic("cannot define http_requests_total metric counter: %w", err)
-	}
+	registerer.MustRegister(requestsTotal)
 
-	latency, err := meter.Float64Histogram(
-		"http_request_duration_seconds",
-		metric.WithDescription("Duration of HTTP requests"),
+	requestDurationSeconds := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds.",
+			Buckets: prometheus.DefBuckets,
+		},
+		metricLabels,
 	)
-	if err != nil {
-		panicf.Panic("cannot define http_request_duration_seconds metrics histogram: %w", err)
-	}
+	registerer.MustRegister(requestDurationSeconds)
 
 	return &TelemetryRoundTripper{
-		next:     next,
-		logger:   logger,
-		meter:    meter,
-		requests: requests,
-		latency:  latency,
+		next:   next,
+		logger: logger,
+		tracer: tp.Tracer(
+			tracerName,
+			trace.WithInstrumentationVersion(
+				version.New(0).Alpha(1),
+			),
+		),
+		requestsTotal:          requestsTotal,
+		requestDurationSeconds: requestDurationSeconds,
 	}
 }
 
@@ -95,93 +111,100 @@ func NewTelemetryRoundTripper(next http.RoundTripper, logger *log.Logger, meter 
 // measures the request latency, and counts the request based on the
 // response status. It sanitizes URLs to exclude query parameters and
 // fragments for logging and tracing.
-func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	start := time.Now()
-	ctx := req.Context()
-	newReq := req.Clone(ctx)
+func (rt *TelemetryRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	var (
+		r2        = r.Clone(r.Context())
+		ctx       = r2.Context()
+		start     = time.Now()
+		requestID = r2.Header.Get("x-request-id")
+	)
 
-	reqURL := sanitizeURL(newReq.URL)
-	span := trace.SpanFromContext(ctx)
-	spanCtx := span.SpanContext()
-
-	requestID := newReq.Header.Get("x-request-id")
 	if requestID == "" {
 		id, err := uuid.NewV7()
 		if err != nil {
-			panicf.Panic("cannot generate UUID: %w", err)
+			return nil, fmt.Errorf("cannot generate request-id: %w", err)
 		}
 
 		requestID = id.String()
 	}
+	r2.Header.Set("x-request-id", requestID)
 
-	logger := rt.logger.With(
-		log.String("http_request_method", newReq.Method),
-		log.String("http_request_host", reqURL.Host),
-		log.String("http_request_path", reqURL.Path),
-		log.String("http_request_flavor", newReq.Proto),
-		log.String("http_request_scheme", reqURL.Scheme),
-		log.String("http_request_user_agent", newReq.UserAgent()),
-		log.String("http_request_id", requestID),
+	var (
+		rootSpan = trace.SpanFromContext(ctx)
+		span     trace.Span
+		logger   = rt.logger.With(
+			log.String("http_request_method", r2.Method),
+			log.String("http_request_scheme", r2.URL.Scheme),
+			log.String("http_request_host", r2.URL.Host),
+			log.String("http_request_path", r2.URL.Path),
+			log.String("http_request_flavor", r2.Proto),
+			log.String("http_request_user_agent", r2.UserAgent()),
+			log.String("http_request_client_ip", r2.RemoteAddr),
+			log.String("http_request_id", requestID),
+		)
 	)
 
-	span.SetAttributes(
-		attribute.String("http.method", newReq.Method),
-		attribute.String("http.url", reqURL.String()),
-		attribute.String("http.target", reqURL.Path),
-		attribute.String("http.host", newReq.Host),
-		attribute.String("http.scheme", reqURL.Scheme),
-		attribute.String("http.flavor", newReq.Proto),
-		attribute.String("http.client_ip", newReq.RemoteAddr),
-		attribute.String("http.user_agent", newReq.UserAgent()),
-		attribute.String("http.request_id", requestID),
-	)
+	if rootSpan.IsRecording() {
+		spanName := fmt.Sprintf("%s %s %s", r2.Method, r2.URL.Host, r2.URL.Path)
+		ctx, span = rt.tracer.Start(
+			ctx,
+			spanName,
+			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithAttributes(
+				semconv.NetworkPeerAddress(r2.URL.Host),
+				semconv.NetworkPeerPort(atoi(r2.URL.Port())),
+				semconv.URLScheme(r2.URL.Scheme),
+				attribute.String("http.method", r.Method),
+				attribute.String("http.url", r2.URL.String()),
+				attribute.String("http.target", r2.URL.Path),
+				attribute.String("http.host", r2.URL.Host),
+				attribute.String("http.scheme", r2.URL.Scheme),
+				attribute.String("http.flavor", r2.Proto),
+				attribute.String("http.client_ip", r2.RemoteAddr),
+				attribute.String("http.user_agent", r2.UserAgent()),
+				attribute.String("http.request_id", requestID),
+			),
+		)
+		defer span.End()
 
-	newReq.Header.Set(
-		"traceparent",
-		fmt.Sprintf(
-			"%s-%s-%s-%s",
-			"00",
-			spanCtx.TraceID().String(),
-			spanCtx.SpanID().String(),
-			spanCtx.TraceFlags().String(),
-		),
-	)
-
-	newReq.Header.Set(
-		"tracestate",
-		spanCtx.TraceState().String(),
-	)
-
-	resp, err := rt.next.RoundTrip(newReq)
-	if err != nil {
-		logger.ErrorCtx(ctx, "cannot execute http transaction", log.Any("error", err))
-
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-
-		return resp, err
+		propagator := otel.GetTextMapPropagator()
+		propagator.Inject(ctx, propagation.HeaderCarrier(r2.Header))
 	}
 
-	span.SetAttributes(
-		attribute.Int("http.status_code", resp.StatusCode),
-		attribute.String("http.status_text", resp.Status),
-	)
+	resp, err := rt.next.RoundTrip(r2)
+	if err != nil {
+		rt.logger.ErrorCtx(ctx, "cannot execute http transaction", log.Error(err))
+
+		if span.IsRecording() {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+
+		return nil, err
+	}
+
+	if rootSpan.IsRecording() {
+		span.SetAttributes(
+			attribute.Int("http.status_code", resp.StatusCode),
+			attribute.String("http.status_text", resp.Status),
+		)
+	}
 
 	duration := time.Since(start)
-	metricAttributes := metric.WithAttributes(
-		attribute.String("http_request_method", newReq.Method),
-		attribute.String("http_request_host", reqURL.Host),
-		attribute.String("http_request_path", reqURL.Path),
-		attribute.String("http_request_flavor", newReq.Proto),
-		attribute.String("http_request_scheme", reqURL.Scheme),
-		attribute.Int("http_response_status_code", resp.StatusCode),
-	)
 
-	rt.requests.Add(ctx, 1, metricAttributes)
-	rt.latency.Record(ctx, duration.Seconds(), metricAttributes)
+	metricLabels := prometheus.Labels{
+		"method":      r2.Method,
+		"host":        r2.URL.Host,
+		"flavor":      r2.Proto,
+		"scheme":      r2.URL.Scheme,
+		"status_code": strconv.Itoa(resp.StatusCode),
+	}
+
+	rt.requestsTotal.With(metricLabels).Inc()
+	rt.requestDurationSeconds.With(metricLabels).Observe(duration.Seconds())
 
 	logLevel := log.LevelInfo
-	logMessage := fmt.Sprintf("%s %s %d %s", newReq.Method, reqURL.String(), resp.StatusCode, duration)
+	logMessage := fmt.Sprintf("%s %s %d %s", r2.Method, r.URL.String(), resp.StatusCode, duration)
 	if resp.StatusCode >= http.StatusInternalServerError {
 		logLevel = log.LevelError
 	}
@@ -191,11 +214,11 @@ func (rt *TelemetryRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	return resp, nil
 }
 
-func sanitizeURL(u *url.URL) *url.URL {
-	u2 := *u
-	u2.RawQuery = ""
-	u2.RawFragment = ""
-	u2.User = nil
+func atoi(s string) int {
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
 
-	return &u2
+	return v
 }
