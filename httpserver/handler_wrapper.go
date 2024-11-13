@@ -59,7 +59,7 @@ var (
 	}
 )
 
-func NewHandlerWrapper(
+func newHandlerWrapper(
 	next http.Handler,
 	logger *log.Logger,
 	tp trace.TracerProvider,
