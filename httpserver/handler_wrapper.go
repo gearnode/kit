@@ -19,7 +19,6 @@ package httpserver
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -44,7 +43,7 @@ type (
 		requestDuration *prometheus.HistogramVec
 		responseSize    *prometheus.HistogramVec
 		tracer          trace.Tracer
-		logger          *slog.Logger
+		logger          *log.Logger
 	}
 )
 
@@ -105,7 +104,8 @@ func newHandlerWrapper(
 	registerer.MustRegister(responseSize)
 
 	return &handlerWrapper{
-		next: next,
+		next:   next,
+		logger: logger,
 		tracer: tp.Tracer(
 			tracerName,
 			trace.WithInstrumentationVersion(
