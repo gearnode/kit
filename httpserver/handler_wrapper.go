@@ -67,7 +67,6 @@ func newHandlerWrapper(
 		"method",
 		"host",
 		"flavor",
-		"scheme",
 		"status_code",
 	}
 
@@ -153,7 +152,6 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ww        = NewWrapResponseWriter(w, r2.ProtoMajor)
 		logger    = hw.logger.With(
 			log.String("http_request_method", r2.Method),
-			log.String("http_request_scheme", r2.URL.Scheme),
 			log.String("http_request_host", r2.Host),
 			log.String("http_request_path", r2.URL.Path),
 			log.String("http_request_flavor", r2.Proto),
@@ -195,7 +193,6 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				attribute.String("http.method", r.Method),
 				attribute.String("http.url", r2.URL.String()),
 				attribute.String("http.target", r2.URL.Path),
-				attribute.String("http.scheme", r2.URL.Scheme),
 				attribute.String("http.host", r2.Host),
 				attribute.String("http.flavor", r2.Proto),
 				attribute.String("http.client_ip", r2.RemoteAddr),
@@ -238,7 +235,6 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"method":      r2.Method,
 			"host":        r2.Host,
 			"flavor":      r2.Proto,
-			"scheme":      r2.URL.Scheme,
 			"status_code": strconv.Itoa(ww.Status()),
 		}
 
