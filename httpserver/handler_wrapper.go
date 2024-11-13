@@ -118,6 +118,13 @@ func newHandlerWrapper(
 }
 
 func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Bypass for OPTIONS request to avoid telemetry, metrics and
+	// logging noise.
+	if r.Method == http.MethodOptions {
+		hw.next.ServeHTTP(w, r)
+		return
+	}
+
 	if r.URL.Path == "/health" {
 		w.Header().Set("content-type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
