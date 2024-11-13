@@ -120,7 +120,7 @@ func newHandlerWrapper(
 
 func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/health" {
-		w.Header().Set("content-type", "application/json")
+		w.Header().Set("content-type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("{}"))
 		return
