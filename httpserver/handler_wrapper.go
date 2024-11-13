@@ -17,12 +17,14 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.gearno.de/crypto/uuid"
 	"go.gearno.de/kit/internal/version"
@@ -57,7 +59,7 @@ var (
 	}
 )
 
-func newHandlerWrapper(
+func NewHandlerWrapper(
 	next http.Handler,
 	logger *log.Logger,
 	tp trace.TracerProvider,
@@ -68,6 +70,7 @@ func newHandlerWrapper(
 		"host",
 		"flavor",
 		"status_code",
+		"path",
 	}
 
 	requestsTotal := prometheus.NewCounterVec(
@@ -129,6 +132,7 @@ func newHandlerWrapper(
 	}
 }
 
+// TODO X-Forwaded-* support
 func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Bypass for OPTIONS request to avoid telemetry, metrics and
 	// logging noise.
@@ -203,11 +207,13 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer span.End()
 	}
 
+	// Hack to get route pattern from Chi. As today using the STD
+	// router will require to much works to have proper sub router
+	// support, a task for later.
+	ctx = context.WithValue(ctx, chi.RouteCtxKey, chi.NewRouteContext())
+
 	defer func() {
 		duration := time.Since(start)
-
-		// r.Pattern pattern matched by the router can be defined by the sub layer
-
 		hasPanic := false
 		rvr := recover()
 		if rvr != nil {
@@ -236,6 +242,7 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"host":        r2.Host,
 			"flavor":      r2.Proto,
 			"status_code": strconv.Itoa(ww.Status()),
+			"path":        chi.RouteContext(ctx).RoutePattern(),
 		}
 
 		hw.requestsTotal.With(metricLabels).Inc()
@@ -256,8 +263,8 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		msg := fmt.Sprintf(
 			"%s %s %d %s %s",
-			r.Method,
-			r.URL.Path,
+			r2.Method,
+			r2.URL.Path,
 			ww.Status(),
 			resSizeString,
 			duration,
@@ -279,7 +286,7 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	hw.next.ServeHTTP(ww, r)
+	hw.next.ServeHTTP(ww, r2.WithContext(ctx))
 }
 
 func atoi(s string) int {
