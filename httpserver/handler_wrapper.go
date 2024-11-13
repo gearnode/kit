@@ -27,7 +27,6 @@ import (
 	"go.gearno.de/crypto/uuid"
 	"go.gearno.de/kit/internal/version"
 	"go.gearno.de/kit/log"
-	"go.gearno.de/x/panicf"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -132,23 +131,7 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		start     = time.Now()
 		requestID = r2.Header.Get("x-request-id")
 		ww        = NewWrapResponseWriter(w, r2.ProtoMajor)
-	)
-
-	if requestID == "" {
-		id, err := uuid.NewV7()
-		if err != nil {
-			panicf.Panic("cannot generate request id: %w", err)
-		}
-
-		requestID = id.String()
-	}
-	r2.Header.Set("x-request-id", requestID)
-	ww.Header().Set("x-request-id", requestID)
-
-	var (
-		rootSpan = trace.SpanFromContext(ctx)
-		span     trace.Span
-		logger   = hw.logger.With(
+		logger    = hw.logger.With(
 			log.String("http_request_method", r2.Method),
 			log.String("http_request_scheme", r2.URL.Scheme),
 			log.String("http_request_host", r2.URL.Host),
@@ -156,8 +139,24 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.String("http_request_flavor", r2.Proto),
 			log.String("http_request_user_agent", r2.UserAgent()),
 			log.String("http_request_client_ip", r2.RemoteAddr),
-			log.String("http_request_id", requestID),
 		)
+	)
+
+	if requestID == "" {
+		id, err := uuid.NewV7()
+		if err != nil {
+			logger.ErrorCtx(ctx, "cannot generate request id", log.Error(err))
+		}
+
+		requestID = id.String()
+	}
+	r2.Header.Set("x-request-id", requestID)
+	ww.Header().Set("x-request-id", requestID)
+	logger = logger.With(log.String("http_request_id", requestID))
+
+	var (
+		rootSpan = trace.SpanFromContext(ctx)
+		span     trace.Span
 	)
 
 	if rootSpan.IsRecording() {
