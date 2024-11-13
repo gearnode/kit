@@ -75,8 +75,9 @@ func NewTelemetryRoundTripper(
 
 	requestsTotal := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "http_requests_total",
-			Help: "Total number of HTTP requests made.",
+			Subsystem: "http_client",
+			Name:      "requests_total",
+			Help:      "Total number of HTTP requests made.",
 		},
 		metricLabels,
 	)
@@ -84,9 +85,10 @@ func NewTelemetryRoundTripper(
 
 	requestDurationSeconds := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "http_request_duration_seconds",
-			Help:    "Duration of HTTP requests in seconds.",
-			Buckets: prometheus.DefBuckets,
+			Subsystem: "http_client",
+			Name:      "request_duration_seconds",
+			Help:      "Duration of HTTP requests in seconds.",
+			Buckets:   prometheus.DefBuckets,
 		},
 		metricLabels,
 	)
