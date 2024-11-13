@@ -164,7 +164,14 @@ func NewLogger(options ...Option) *Logger {
 // With returns a new Logger with additional attributes, keeping the
 // original Logger’s name and settings.
 func (l *Logger) With(attrs ...Attr) *Logger {
-	return NewLogger(WithName(l.path), WithAttributes(attrs...))
+	return NewLogger(
+		WithName(l.path),
+		WithOutput(l.output),
+		WithLevel(l.level.Level()),
+		WithAttributes(
+			append(l.attributes, attrs...)...,
+		),
+	)
 }
 
 // Named returns a new Logger with a modified name, appending the
