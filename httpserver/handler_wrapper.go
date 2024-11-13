@@ -40,6 +40,7 @@ type (
 		next            http.Handler
 		requestsTotal   *prometheus.CounterVec
 		requestDuration *prometheus.HistogramVec
+		requestSize     *prometheus.HistogramVec
 		responseSize    *prometheus.HistogramVec
 		tracer          trace.Tracer
 		logger          *log.Logger
@@ -91,6 +92,17 @@ func newHandlerWrapper(
 	)
 	registerer.MustRegister(requestDuration)
 
+	requestSize := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "http_server",
+			Name:      "request_size_bytes",
+			Help:      "Size of the HTTP request in bytes",
+			Buckets:   prometheus.ExponentialBuckets(100, 10, 5),
+		},
+		metricLabels,
+	)
+	registerer.MustRegister(requestSize)
+
 	responseSize := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "http_server",
@@ -113,6 +125,7 @@ func newHandlerWrapper(
 		),
 		requestsTotal:   requestsTotal,
 		requestDuration: requestDuration,
+		requestSize:     requestSize,
 		responseSize:    responseSize,
 	}
 }
@@ -231,7 +244,8 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		hw.requestsTotal.With(metricLabels).Inc()
 		hw.requestDuration.With(metricLabels).Observe(duration.Seconds())
-		hw.responseSize.With(metricLabels).Observe(estimateRequestSize(r))
+		hw.requestSize.With(metricLabels).Observe(estimateRequestSize(r))
+		hw.responseSize.With(metricLabels).Observe(float64(ww.BytesWritten()))
 
 		var resSizeString string
 		if ww.BytesWritten() < 1000 {
