@@ -107,7 +107,7 @@ func newHandlerWrapper(
 		prometheus.HistogramOpts{
 			Subsystem: "http_server",
 			Name:      "response_size_bytes",
-			Help:      "Size of HTTP server responses in bytes",
+			Help:      "Size of HTTP responses in bytes",
 			Buckets:   prometheus.ExponentialBuckets(100, 10, 5),
 		},
 		metricLabels,
