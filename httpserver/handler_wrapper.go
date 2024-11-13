@@ -211,7 +211,7 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			ww.WriteHeader(http.StatusInternalServerError)
 			if err := json.NewEncoder(ww).Encode(internalErrorResponse); err != nil {
-				logger.ErrorContext(ctx, "cannot write internal error", log.Error(err))
+				logger.ErrorCtx(ctx, "cannot write internal error", log.Error(err))
 			}
 		}
 
@@ -257,9 +257,9 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if ww.Status() > 499 || hasPanic {
-			logger.ErrorContext(ctx, msg)
+			logger.ErrorCtx(ctx, msg)
 		} else {
-			logger.InfoContext(ctx, msg)
+			logger.InfoCtx(ctx, msg)
 		}
 	}()
 
