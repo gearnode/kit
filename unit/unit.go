@@ -278,6 +278,10 @@ func (u *Unit) runTracingExporter(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
+	if err := traceProvider.ForceFlush(shutdownCtx); err != nil {
+		return fmt.Errorf("cannot flush remaining spans: %w", err)
+	}
+
 	if err := traceProvider.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("cannot shutdown trace exporter: %w", err)
 	}
