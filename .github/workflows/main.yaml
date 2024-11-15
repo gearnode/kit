@@ -1,0 +1,39 @@
+name: "go"
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+    branches:
+      - "main"
+
+jobs:
+  quality-check:
+    runs-on: "ubuntu-latest"
+
+    steps:
+      - uses: "actions/checkout@v4"
+      - uses: "actions/setup-go@v4"
+        with:
+          go-version: "1.22"
+      - uses: "actions/cache@v3"
+        with:
+          path: "~/.cache/go-build"
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install golang.org/x/tools/cmd/goimports@latest
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+      - run: "go vet ./..."
+      - run: "staticcheck ./..."
+      - run: "golangci-lint run ./..."
+      - run: |
+          diff=$(goimports -d .)
+          if [ -n "$diff" ]; then
+            echo "$diff"
+            exit 1
+          fi
