@@ -164,7 +164,7 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	go func() {
 		defer wg.Done()
 		if err := u.runMetricsServer(metricsServerCtx, metricsInitialized); err != nil {
-			cancel(err)
+			cancel(fmt.Errorf("metrics server crashed: %w", err))
 		}
 
 		logger.Info("metrics server shutdown")
@@ -177,7 +177,7 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	go func() {
 		defer wg.Done()
 		if err := u.runTracingExporter(tracingExporterCtx, tracingInitialized); err != nil {
-			cancel(err)
+			cancel(fmt.Errorf("traces exporter crashed: %w", err))
 		}
 
 		logger.Info("metrics server shutdown")
@@ -189,13 +189,13 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	select {
 	case registry = <-metricsInitialized:
 	case <-ctx.Done():
-		return fmt.Errorf("metrics server crashed: %w", context.Cause(ctx))
+		return context.Cause(ctx)
 	}
 
 	select {
 	case traceProvider = <-tracingInitialized:
 	case <-ctx.Done():
-		return fmt.Errorf("traces exporter crashed: %w", context.Cause(ctx))
+		return context.Cause(ctx)
 	}
 
 	fmt.Println(registry, traceProvider)
