@@ -283,7 +283,11 @@ func (u *Unit) runTracingExporter(ctx context.Context) error {
 	}
 
 	if err := traceProvider.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("cannot shutdown trace exporter: %w", err)
+		return fmt.Errorf("cannot shutdown provider: %w", err)
+	}
+
+	if err := exporter.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("cannot shutdown exporter: %w", err)
 	}
 
 	return ctx.Err()
