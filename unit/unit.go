@@ -154,16 +154,18 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		err := u.runMetricsServer(metricsServerCtx)
-		cancel(err)
+		if err := u.runMetricsServer(metricsServerCtx); err != nil {
+			cancel(err)
+		}
 	}()
 
 	tracingExporterCtx, stopTracingExporter := context.WithCancel(context.Background())
 	wg.Add(1)
 	defer func() {
 		defer wg.Done()
-		err := u.runTracingExporter(tracingExporterCtx)
-		cancel(err)
+		if err := u.runTracingExporter(tracingExporterCtx); err != nil {
+			cancel(err)
+		}
 	}()
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
