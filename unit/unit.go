@@ -37,8 +37,9 @@ import (
 	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
+	traceSdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 	"sigs.k8s.io/yaml"
 )
 
@@ -50,11 +51,11 @@ type (
 
 		logger *log.Logger
 		config *Config
-		run    Runnable
+		main   Runnable
 	}
 
 	Runnable interface {
-		Run(context.Context) error
+		Run(context.Context, *log.Logger, prometheus.Registerer, trace.TracerProvider) error
 	}
 
 	Configurable interface {
@@ -134,7 +135,7 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 
 	if *printCfg {
 		config := map[string]any{"unit": u.config}
-		if configurable, ok := u.run.(Configurable); ok {
+		if configurable, ok := u.main.(Configurable); ok {
 			config[u.name] = configurable.GetConfiguration()
 		}
 
@@ -154,8 +155,8 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	defer cancel(context.Canceled)
 
 	wg := sync.WaitGroup{}
-	metricsInitialized := make(chan *prometheus.Registry)
-	tracingInitialized := make(chan *trace.TracerProvider)
+	metricsInitialized := make(chan prometheus.Registerer)
+	tracingInitialized := make(chan trace.TracerProvider)
 
 	metricsServerCtx, stopMetricsServer := context.WithCancel(context.Background())
 	defer stopMetricsServer()
@@ -183,8 +184,8 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 		logger.Info("metrics server shutdown")
 	}()
 
-	var registry *prometheus.Registry
-	var traceProvider *trace.TracerProvider
+	var registry prometheus.Registerer
+	var traceProvider trace.TracerProvider
 
 	select {
 	case registry = <-metricsInitialized:
@@ -198,7 +199,14 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 		return context.Cause(ctx)
 	}
 
-	fmt.Println(registry, traceProvider)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if err := u.main.Run(ctx, u.logger, registry, traceProvider); err != nil {
+			cancel(err)
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -213,7 +221,7 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	return context.Cause(ctx)
 }
 
-func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- *prometheus.Registry) error {
+func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- prometheus.Registerer) error {
 	logger := u.logger.Named("unit.metrics")
 
 	logger.InfoCtx(ctx, "starting metrics server")
@@ -278,7 +286,7 @@ func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- *prometh
 	return ctx.Err()
 }
 
-func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- *trace.TracerProvider) error {
+func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.TracerProvider) error {
 	logger := u.logger.Named("unit.metrics")
 	config := u.config.Tracing
 
@@ -301,15 +309,15 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- *trace
 		return fmt.Errorf("cannot create otel exporter: %w", err)
 	}
 
-	traceProvider := trace.NewTracerProvider(
-		trace.WithBatcher(
+	traceProvider := traceSdk.NewTracerProvider(
+		traceSdk.WithBatcher(
 			exporter,
-			trace.WithMaxExportBatchSize(config.MaxBatchSize),
-			trace.WithBatchTimeout(time.Duration(config.BatchTimeout)*time.Second),
-			trace.WithExportTimeout(time.Duration(config.ExportTimeout)*time.Second),
-			trace.WithMaxQueueSize(config.MaxQueueSize),
+			traceSdk.WithMaxExportBatchSize(config.MaxBatchSize),
+			traceSdk.WithBatchTimeout(time.Duration(config.BatchTimeout)*time.Second),
+			traceSdk.WithExportTimeout(time.Duration(config.ExportTimeout)*time.Second),
+			traceSdk.WithMaxQueueSize(config.MaxQueueSize),
 		),
-		trace.WithResource(
+		traceSdk.WithResource(
 			resource.NewWithAttributes(
 				semconv.SchemaURL,
 				semconv.ServiceName(u.name),
@@ -373,7 +381,7 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 		}
 	}
 
-	if configurable, ok := u.run.(Configurable); !ok {
+	if configurable, ok := u.main.(Configurable); !ok {
 		if _, ok := config[u.name]; ok {
 			encoded, _ := json.Marshal(config[u.name])
 			if err := json.Unmarshal(encoded, configurable.GetConfiguration()); err != nil {
