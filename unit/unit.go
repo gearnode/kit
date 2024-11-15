@@ -80,9 +80,10 @@ type (
 	}
 )
 
-func NewUnit(name string, version, environment string) *Unit {
+func NewUnit(main Runnable, name, version, environment string) *Unit {
 	return &Unit{
 		name: name,
+		main: main,
 		logger: log.NewLogger(
 			log.WithName(name),
 			log.WithAttributes(
