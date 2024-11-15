@@ -44,8 +44,9 @@ import (
 
 type (
 	Unit struct {
-		name    string
-		version string
+		name        string
+		version     string
+		environment string
 
 		logger *log.Logger
 		config *Config
@@ -147,26 +148,57 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 		return nil
 	}
 
+	logger := u.logger.Named("unit")
+
 	ctx, cancel := context.WithCancelCause(parentCtx)
+	defer cancel(context.Canceled)
+
 	wg := sync.WaitGroup{}
+	metricsInitialized := make(chan *prometheus.Registry)
+	tracingInitialized := make(chan *trace.TracerProvider)
 
 	metricsServerCtx, stopMetricsServer := context.WithCancel(context.Background())
+	defer stopMetricsServer()
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := u.runMetricsServer(metricsServerCtx); err != nil {
+		if err := u.runMetricsServer(metricsServerCtx, metricsInitialized); err != nil {
 			cancel(err)
 		}
+
+		logger.Info("metrics server shutdown")
 	}()
 
 	tracingExporterCtx, stopTracingExporter := context.WithCancel(context.Background())
+	defer stopTracingExporter()
+
 	wg.Add(1)
-	defer func() {
+	go func() {
 		defer wg.Done()
-		if err := u.runTracingExporter(tracingExporterCtx); err != nil {
+		if err := u.runTracingExporter(tracingExporterCtx, tracingInitialized); err != nil {
 			cancel(err)
 		}
+
+		logger.Info("metrics server shutdown")
 	}()
+
+	var registry *prometheus.Registry
+	var traceProvider *trace.TracerProvider
+
+	select {
+	case registry = <-metricsInitialized:
+	case <-ctx.Done():
+		return fmt.Errorf("metrics server crashed: %w", context.Cause(ctx))
+	}
+
+	select {
+	case traceProvider = <-tracingInitialized:
+	case <-ctx.Done():
+		return fmt.Errorf("traces exporter crashed: %w", context.Cause(ctx))
+	}
+
+	fmt.Println(registry, traceProvider)
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -178,15 +210,13 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 
 	wg.Wait()
 
-	if ctx.Err() == context.Canceled {
-		return nil
-	}
-
-	return ctx.Err()
+	return context.Cause(ctx)
 }
 
-func (u *Unit) runMetricsServer(ctx context.Context) error {
+func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- *prometheus.Registry) error {
 	logger := u.logger.Named("unit.metrics")
+
+	logger.InfoCtx(ctx, "starting metrics server")
 
 	registry := prometheus.NewPedanticRegistry()
 	metricsHandler := promhttp.HandlerFor(
@@ -217,14 +247,26 @@ func (u *Unit) runMetricsServer(ctx context.Context) error {
 	}
 	defer listener.Close()
 
+	initialized <- registry
+
+	serverErrCh := make(chan error, 1)
 	go func() {
 		err = httpServer.Serve(listener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("cannot server http request", log.Error(err))
+			serverErrCh <- fmt.Errorf("cannot server http request: %w", err)
 		}
+		close(serverErrCh)
 	}()
 
-	<-ctx.Done()
+	logger.Info("metrics server started")
+
+	select {
+	case err := <-serverErrCh:
+		return err
+	case <-ctx.Done():
+	}
+
+	logger.InfoCtx(ctx, "shutting down metrics server")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
@@ -236,7 +278,12 @@ func (u *Unit) runMetricsServer(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (u *Unit) runTracingExporter(ctx context.Context) error {
+func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- *trace.TracerProvider) error {
+	logger := u.logger.Named("unit.metrics")
+	config := u.config.Tracing
+
+	logger.InfoCtx(ctx, "starting traces exporter", log.String("addr", config.Addr))
+
 	exporter := otlptracehttp.NewUnstarted(
 		otlptracehttp.WithCompression(otlptracehttp.GzipCompression),
 		otlptracehttp.WithRetry(
@@ -254,7 +301,6 @@ func (u *Unit) runTracingExporter(ctx context.Context) error {
 		return fmt.Errorf("cannot create otel exporter: %w", err)
 	}
 
-	config := u.config.Tracing
 	traceProvider := trace.NewTracerProvider(
 		trace.WithBatcher(
 			exporter,
@@ -267,13 +313,19 @@ func (u *Unit) runTracingExporter(ctx context.Context) error {
 			resource.NewWithAttributes(
 				semconv.SchemaURL,
 				semconv.ServiceName(u.name),
-				semconv.ServiceVersion(""),
-				semconv.DeploymentEnvironment(""),
+				semconv.ServiceVersion(u.version),
+				semconv.DeploymentEnvironment(u.environment),
 			),
 		),
 	)
 
+	initialized <- traceProvider
+
+	logger.Info("trace exporter started")
+
 	<-ctx.Done()
+
+	logger.InfoCtx(ctx, "shutting down traces exporter")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
