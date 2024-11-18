@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -230,6 +231,14 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					span.SetStatus(codes.Error, fmt.Sprintf("%v", rvr))
 				}
 			}
+
+			stack := make([]byte, 1024)
+			length := runtime.Stack(stack, false)
+
+			logger = logger.With(
+				log.Any("error", rvr),
+				log.String("stacktrace", string(stack[:length])),
+			)
 
 			ww.WriteHeader(http.StatusInternalServerError)
 			if err := json.NewEncoder(ww).Encode(internalErrorResponse); err != nil {
