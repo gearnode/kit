@@ -17,6 +17,7 @@
 package httpclient
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -26,6 +27,7 @@ import (
 	"go.gearno.de/crypto/uuid"
 	"go.gearno.de/kit/internal/version"
 	"go.gearno.de/kit/log"
+	"go.gearno.de/x/panicf"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -81,7 +83,19 @@ func NewTelemetryRoundTripper(
 		},
 		metricLabels,
 	)
-	registerer.MustRegister(requestsTotal)
+
+	if err := registerer.Register(requestsTotal); err != nil {
+		are := &prometheus.AlreadyRegisteredError{}
+		if errors.As(err, are) {
+			requestsTotal = are.ExistingCollector.(*prometheus.CounterVec)
+		} else {
+			panicf.Panic(
+				"cannot register %q prometheus metrics: %w",
+				"http_client_requests_total",
+				err,
+			)
+		}
+	}
 
 	requestDurationSeconds := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -92,7 +106,18 @@ func NewTelemetryRoundTripper(
 		},
 		metricLabels,
 	)
-	registerer.MustRegister(requestDurationSeconds)
+	if err := registerer.Register(requestDurationSeconds); err != nil {
+		are := &prometheus.AlreadyRegisteredError{}
+		if errors.As(err, are) {
+			requestDurationSeconds = are.ExistingCollector.(*prometheus.HistogramVec)
+		} else {
+			panicf.Panic(
+				"cannot register %q prometheus metrics: %w",
+				"http_client_request_duration_seconds",
+				err,
+			)
+		}
+	}
 
 	return &TelemetryRoundTripper{
 		next:   next,
