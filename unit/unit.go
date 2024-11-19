@@ -376,7 +376,7 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 	}
 
 	if _, ok := config["unit"]; ok {
-		encoded, _ := json.Marshal(config["uniq"])
+		encoded, _ := json.Marshal(config["unit"])
 		if err := json.Unmarshal(encoded, u.config); err != nil {
 			return fmt.Errorf("cannot decode %q config section: %w", "uniq", err)
 		}
