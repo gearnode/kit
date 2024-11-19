@@ -382,7 +382,7 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 		}
 	}
 
-	if configurable, ok := u.main.(Configurable); !ok {
+	if configurable, ok := u.main.(Configurable); ok {
 		if _, ok := config[u.name]; ok {
 			encoded, _ := json.Marshal(config[u.name])
 			if err := json.Unmarshal(encoded, configurable.GetConfiguration()); err != nil {
