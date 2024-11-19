@@ -113,6 +113,12 @@ func WithTLS(cert *x509.Certificate) Option {
 	}
 }
 
+func WithPoolSize(i int32) Option {
+	return func(c *Client) {
+		c.poolSize = i
+	}
+}
+
 // WithTracerProvider configures OpenTelemetry tracing with the
 // provided tracer provider.
 func WithTracerProvider(tp trace.TracerProvider) Option {
