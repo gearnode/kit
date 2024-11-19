@@ -33,6 +33,8 @@ import (
 	"go.gearno.de/kit/internal/version"
 	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -62,6 +64,12 @@ type (
 	}
 
 	ExecFunc func(Conn) error
+
+	AdvisoryLock = uint32
+)
+
+const (
+	BaseAdvisoryLockId uint32 = 42
 )
 
 // WithLogger sets a custom logger.
@@ -245,7 +253,11 @@ func (c *Client) WithConn(
 	)
 
 	if rootSpan.IsRecording() {
-		ctx, span = c.tracer.Start(ctx, "WithConn")
+		ctx, span = c.tracer.Start(
+			ctx,
+			"WithConn",
+			trace.WithSpanKind(trace.SpanKindClient),
+		)
 		defer span.End()
 	}
 
@@ -297,7 +309,11 @@ func (c *Client) WithTx(
 	)
 
 	if rootSpan.IsRecording() {
-		ctx, span = c.tracer.Start(ctx, "WithTx")
+		ctx, span = c.tracer.Start(
+			ctx,
+			"WithTx",
+			trace.WithSpanKind(trace.SpanKindClient),
+		)
 		defer span.End()
 	}
 
@@ -344,6 +360,70 @@ func (c *Client) WithTx(
 		}
 
 		return err
+	}
+
+	return nil
+}
+
+func (c *Client) WithAdvisoryLock(
+	ctx context.Context,
+	id AdvisoryLock,
+	f func(Conn) error,
+) error {
+	var (
+		rootSpan = trace.SpanFromContext(ctx)
+		span     trace.Span
+	)
+
+	if rootSpan.IsRecording() {
+		ctx, span = c.tracer.Start(
+			ctx,
+			"WithAdvisoryLock",
+			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithAttributes(
+				attribute.Int("lock_id", int(id)),
+			),
+		)
+		defer span.End()
+	}
+
+	return c.WithTx(
+		ctx,
+		func(conn Conn) error {
+			q := "SELECT pg_advisory_xact_lock($1, $2)"
+			_, err := conn.Exec(ctx, q, BaseAdvisoryLockId, id)
+			if err != nil {
+				err = fmt.Errorf("cannot acquire advisory lock: %w", err)
+				if rootSpan.IsRecording() {
+					span.SetStatus(codes.Error, err.Error())
+					span.RecordError(err)
+				}
+
+				return err
+			}
+
+			err = f(conn)
+			if err != nil {
+				if rootSpan.IsRecording() {
+					span.SetStatus(codes.Error, err.Error())
+					span.RecordError(err)
+				}
+
+				return err
+			}
+
+			return nil
+		},
+	)
+}
+
+func (c *Client) RefreshTypes(ctx context.Context) error {
+	conns := c.pool.AcquireAllIdle(ctx)
+	for _, conn := range conns {
+		if err := conn.Conn().Close(ctx); err != nil {
+			return fmt.Errorf("cannot refresh postgresql type: %w", err)
+		}
+		conn.Release()
 	}
 
 	return nil
