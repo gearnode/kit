@@ -279,7 +279,7 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			duration,
 		)
 
-		logger.With(
+		logger = logger.With(
 			log.Int("http_reponse_size", ww.BytesWritten()),
 			log.Int("http_response_status", ww.Status()),
 		)
