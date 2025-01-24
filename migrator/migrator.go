@@ -19,7 +19,7 @@ package migrator
 import (
 	"context"
 	"fmt"
-	"os"
+	"io/fs"
 	"path"
 	"sort"
 
@@ -29,7 +29,7 @@ import (
 type (
 	Migrator struct {
 		pg   *pg.Client
-		path string
+		disk FS
 	}
 
 	Migration struct {
@@ -38,22 +38,27 @@ type (
 	}
 
 	Migrations []*Migration
+
+	FS interface {
+		fs.ReadDirFS
+		fs.ReadFileFS
+	}
 )
 
 const (
 	MigrationAdvisoryLock pg.AdvisoryLock = 0
 )
 
-func NewMigrator(pg *pg.Client, dirname string) *Migrator {
+func NewMigrator(pg *pg.Client, disk FS) *Migrator {
 	return &Migrator{
 		pg:   pg,
-		path: dirname,
+		disk: disk,
 	}
 }
 
-func (m *Migrator) Run(ctx context.Context) error {
+func (m *Migrator) Run(ctx context.Context, dirname string) error {
 	var migrations Migrations
-	if err := migrations.LoadFromDir(m.path); err != nil {
+	if err := migrations.LoadFromDir(m.disk, dirname); err != nil {
 		return fmt.Errorf("cannot load migrations: %w", err)
 	}
 
@@ -124,10 +129,10 @@ func (ms Migrations) Sort() {
 	)
 }
 
-func (pms *Migrations) LoadFromDir(pathname string) error {
+func (pms *Migrations) LoadFromDir(disk FS, dirname string) error {
 	var ms Migrations
 
-	entries, err := os.ReadDir(pathname)
+	entries, err := disk.ReadDir(dirname)
 	if err != nil {
 		return fmt.Errorf("cannot read directory: %w", err)
 	}
@@ -138,15 +143,14 @@ func (pms *Migrations) LoadFromDir(pathname string) error {
 		}
 
 		name := entry.Name()
+		filepath := path.Join(dirname, name)
 		ext := path.Ext(name)
 		if ext != ".sql" {
 			continue
 		}
 
-		filepath := path.Join(pathname, name)
-
 		m := &Migration{}
-		if err := m.LoadFromFile(filepath); err != nil {
+		if err := m.LoadFromFile(disk, filepath); err != nil {
 			return fmt.Errorf("cannot load migration from %q: %w", filepath, err)
 		}
 
@@ -172,12 +176,12 @@ func (m *Migration) Apply(ctx context.Context, conn pg.Conn) error {
 	return nil
 }
 
-func (m *Migration) LoadFromFile(pathname string) error {
-	base := path.Base(pathname)
+func (m *Migration) LoadFromFile(disk fs.ReadFileFS, filename string) error {
+	base := path.Base(filename)
 	ext := path.Ext(base)
 	version := base[:len(base)-len(ext)]
 
-	code, err := os.ReadFile(pathname)
+	code, err := disk.ReadFile(filename)
 	if err != nil {
 		return err
 	}
