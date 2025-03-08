@@ -116,10 +116,18 @@ func WithTLS(certs []*x509.Certificate) Option {
 			rootCAs.AddCert(cert)
 		}
 
+		host, _, err := net.SplitHostPort(c.addr)
+		if err != nil {
+			// If SplitHostPort fails, use the full addr as fallback
+			// This handles cases where addr might be just a hostname without port
+			host = c.addr
+		}
+
 		c.tlsConfig = &tls.Config{
-			RootCAs:    rootCAs,
+			RootCAs:            rootCAs,
 			InsecureSkipVerify: false,
-			MinVersion: tls.VersionTLS12,
+			ServerName:         host,
+			MinVersion:         tls.VersionTLS12,
 		}
 	}
 }
