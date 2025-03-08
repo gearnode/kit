@@ -107,12 +107,14 @@ func WithDatabase(database string) Option {
 	}
 }
 
-// WithTLS configures TLS using the provided certificate for secure
+// WithTLS configures TLS using the provided certificates for secure
 // connections.
-func WithTLS(cert *x509.Certificate) Option {
+func WithTLS(certs []*x509.Certificate) Option {
 	return func(c *Client) {
 		rootCAs := x509.NewCertPool()
-		rootCAs.AddCert(cert)
+		for _, cert := range certs {
+			rootCAs.AddCert(cert)
+		}
 
 		c.tlsConfig = &tls.Config{
 			RootCAs:    rootCAs,
