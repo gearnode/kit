@@ -118,6 +118,7 @@ func WithTLS(certs []*x509.Certificate) Option {
 
 		c.tlsConfig = &tls.Config{
 			RootCAs:    rootCAs,
+			InsecureSkipVerify: false,
 			MinVersion: tls.VersionTLS12,
 		}
 	}
