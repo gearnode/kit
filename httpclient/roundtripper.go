@@ -202,7 +202,7 @@ func (rt *TelemetryRoundTripper) RoundTrip(r *http.Request) (*http.Response, err
 	if err != nil {
 		rt.logger.ErrorCtx(ctx, "cannot execute http transaction", log.Error(err))
 
-		if span.IsRecording() {
+		if rootSpan.IsRecording() {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 		}
