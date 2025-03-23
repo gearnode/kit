@@ -35,7 +35,10 @@ func RenderJSON(w http.ResponseWriter, statusCode int, v any) {
 func RenderText(w http.ResponseWriter, statusCode int, v string) {
 	w.Header().Set("content-type", "text/plain; charset=ut8")
 	w.WriteHeader(statusCode)
-	w.Write([]byte(v))
+	_, err := w.Write([]byte(v))
+	if err != nil {
+		panicf.Panic("cannot write text response: %w", err)
+	}
 }
 
 func RenderError(w http.ResponseWriter, statusCode int, err error) {
