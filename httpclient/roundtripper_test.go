@@ -24,9 +24,11 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.gearno.de/kit/log"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 type MockRoundTripper struct {
@@ -38,8 +40,23 @@ func (m *MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return args.Get(0).(*http.Response), args.Error(1)
 }
 
+// NoopRegisterer implements prometheus.Registerer but does nothing.
+type NoopRegisterer struct{}
+
+func (NoopRegisterer) Register(prometheus.Collector) error  { return nil }
+func (NoopRegisterer) MustRegister(...prometheus.Collector) {}
+func (NoopRegisterer) Unregister(prometheus.Collector) bool { return false }
+
 func TestNewTelemetryRoundTripper(t *testing.T) {
-	tr := NewTelemetryRoundTripper(nil, nil, nil, nil)
+	mockRT := new(MockRoundTripper)
+	logger := log.NewLogger(log.WithOutput(io.Discard))
+
+	tr := NewTelemetryRoundTripper(
+		mockRT,
+		logger,
+		noop.NewTracerProvider(),
+		NoopRegisterer{},
+	)
 	assert.NotNil(t, tr)
 }
 
@@ -47,7 +64,12 @@ func TestRoundTrip(t *testing.T) {
 	mockRT := new(MockRoundTripper)
 	logger := log.NewLogger(log.WithOutput(io.Discard))
 
-	tr := NewTelemetryRoundTripper(mockRT, logger, nil, nil)
+	tr := NewTelemetryRoundTripper(
+		mockRT,
+		logger,
+		noop.NewTracerProvider(),
+		NoopRegisterer{},
+	)
 
 	server := httptest.NewServer(
 		http.HandlerFunc(
