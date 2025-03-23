@@ -72,11 +72,12 @@ type (
 	}
 
 	TracingConfig struct {
-		Addr          string `json:"addr"`
-		MaxBatchSize  int    `json:"max-batch-size"`
-		BatchTimeout  int    `json:"batch-timeout"`
-		ExportTimeout int    `json:"export-timeout"`
-		MaxQueueSize  int    `json:"max-queue-size"`
+		Addr          string  `json:"addr"`
+		MaxBatchSize  int     `json:"max-batch-size"`
+		BatchTimeout  int     `json:"batch-timeout"`
+		ExportTimeout int     `json:"export-timeout"`
+		MaxQueueSize  int     `json:"max-queue-size"`
+		SamplingRatio float64 `json:"sampling-ratio"`
 	}
 )
 
@@ -101,6 +102,7 @@ func NewUnit(main Runnable, name, version, environment string) *Unit {
 				BatchTimeout:  10,
 				ExportTimeout: 15,
 				MaxQueueSize:  5000,
+				SamplingRatio: 1.0,
 			},
 		},
 	}
@@ -310,7 +312,20 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 		return fmt.Errorf("cannot create otel exporter: %w", err)
 	}
 
+	var sampler traceSdk.Sampler
+	if config.SamplingRatio >= 1.0 {
+		sampler = traceSdk.AlwaysSample()
+		logger.Info("using AlwaysSample sampler")
+	} else if config.SamplingRatio <= 0.0 {
+		sampler = traceSdk.NeverSample()
+		logger.Info("using NeverSample sampler")
+	} else {
+		sampler = traceSdk.TraceIDRatioBased(config.SamplingRatio)
+		logger.Info("using TraceIDRatioBased sampler", log.Float64("ratio", config.SamplingRatio))
+	}
+
 	traceProvider := traceSdk.NewTracerProvider(
+		traceSdk.WithSampler(sampler),
 		traceSdk.WithBatcher(
 			exporter,
 			traceSdk.WithMaxExportBatchSize(config.MaxBatchSize),
