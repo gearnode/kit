@@ -285,7 +285,7 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.String("http_request_path_pattern", chi.RouteContext(ctx).RoutePattern()),
 		)
 
-		if ww.Status() > 499 && !hasPanic {
+		if ww.Status() > 499 && !hasPanic && rootSpan.IsRecording() {
 			span.SetStatus(codes.Error, fmt.Sprintf("%d status code", ww.Status()))
 		}
 
