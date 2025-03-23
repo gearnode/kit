@@ -20,6 +20,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // setupTracerProvider creates a tracer provider with a span recorder for testing
@@ -38,7 +39,7 @@ func TestHTTPServer_BasicOperation(t *testing.T) {
 	// Set up the tracer provider
 	tracerProvider, spanRecorder := setupTracerProvider()
 	defer func() {
-		otel.SetTracerProvider(trace.NewNoopTracerProvider())
+		otel.SetTracerProvider(noop.NewTracerProvider())
 	}()
 
 	// Create a test handler
@@ -121,7 +122,7 @@ func TestHTTPServer_PanicHandling(t *testing.T) {
 	// Set up the tracer provider
 	tracerProvider, _ := setupTracerProvider()
 	defer func() {
-		otel.SetTracerProvider(trace.NewNoopTracerProvider())
+		otel.SetTracerProvider(noop.NewTracerProvider())
 	}()
 
 	// Create a handler that panics
@@ -198,7 +199,7 @@ func TestHTTPServer_Propagation(t *testing.T) {
 	// Set up a test provider
 	tracerProvider, _ := setupTracerProvider()
 	defer func() {
-		otel.SetTracerProvider(trace.NewNoopTracerProvider())
+		otel.SetTracerProvider(noop.NewTracerProvider())
 	}()
 
 	// Set up the server
