@@ -17,14 +17,18 @@
 package httpserver
 
 import (
+	"context"
 	"io"
 	stdlog "log"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.gearno.de/kit/internal/version"
 	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -80,11 +84,27 @@ func NewServer(addr string, h http.Handler, options ...Option) *http.Server {
 		opts.registerer,
 	)
 
+	tracer := opts.tracerProvider.Tracer(
+		"go.gearno.de/kit/httpserver",
+		trace.WithInstrumentationVersion(
+			version.New(0).Alpha(1),
+		),
+	)
+
 	return &http.Server{
 		Addr:              addr,
 		Handler:           handler,
 		ErrorLog:          stdlog.New(logger, "", 0),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       15 * time.Second,
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			ctx, _ = tracer.Start(ctx, "http.connection",
+				trace.WithSpanKind(trace.SpanKindServer),
+				trace.WithAttributes(
+					attribute.String("net.peer.addr", c.RemoteAddr().String()),
+				),
+			)
+			return ctx
+		},
 	}
 }
