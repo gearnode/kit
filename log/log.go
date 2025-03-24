@@ -189,7 +189,6 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 		WithAttributes(l.attributes...),
 	}
 
-
 	options = append(inheritedOptions, options...)
 	options = append(options, WithName(newPath))
 
