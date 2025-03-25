@@ -35,6 +35,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.gearno.de/kit/log"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	traceSdk "go.opentelemetry.io/otel/sdk/trace"
@@ -295,6 +296,8 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 
 	logger.InfoCtx(ctx, "starting traces exporter", log.String("addr", config.Addr))
 
+	otel.SetErrorHandler(&otelErrorHandler{logger: logger, ctx: ctx})
+
 	exporter := otlptracehttp.NewUnstarted(
 		otlptracehttp.WithCompression(otlptracehttp.GzipCompression),
 		otlptracehttp.WithRetry(
@@ -342,6 +345,8 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 			),
 		),
 	)
+
+	otel.SetTracerProvider(traceProvider)
 
 	initialized <- traceProvider
 
