@@ -300,6 +300,8 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 
 	exporter := otlptracehttp.NewUnstarted(
 		otlptracehttp.WithCompression(otlptracehttp.GzipCompression),
+		otlptracehttp.WithEndpoint(config.Addr),
+		otlptracehttp.WithInsecure(),
 		otlptracehttp.WithRetry(
 			otlptracehttp.RetryConfig{
 				Enabled:         true,
