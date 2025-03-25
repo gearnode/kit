@@ -290,7 +290,7 @@ func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- promethe
 }
 
 func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.TracerProvider) error {
-	logger := u.logger.Named("unit.metrics")
+	logger := u.logger.Named("unit.traces")
 	config := u.config.Tracing
 
 	logger.InfoCtx(ctx, "starting traces exporter", log.String("addr", config.Addr))
