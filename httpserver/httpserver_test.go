@@ -45,7 +45,8 @@ func TestHTTPServer_BasicOperation(t *testing.T) {
 	// Create a test handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, err := w.Write([]byte(`{"status":"ok"}`))
+		require.NoError(t, err)
 	})
 
 	// Create a logger that writes to a buffer
@@ -243,14 +244,17 @@ func TestHTTPServer_Metrics(t *testing.T) {
 		switch r.URL.Path {
 		case "/fast":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"ok"}`))
+			_, err := w.Write([]byte(`{"status":"ok"}`))
+			require.NoError(t, err)
 		case "/slow":
 			time.Sleep(50 * time.Millisecond)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"ok","data":"` + strings.Repeat("x", 1000) + `"}`))
+			_, err := w.Write([]byte(`{"status":"ok","data":"` + strings.Repeat("x", 1000) + `"}`))
+			require.NoError(t, err)
 		case "/error":
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error":"bad request"}`))
+			_, err := w.Write([]byte(`{"error":"bad request"}`))
+			require.NoError(t, err)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -278,7 +282,8 @@ func TestHTTPServer_Metrics(t *testing.T) {
 	for _, path := range paths {
 		resp, err := http.Get(ts.URL + path)
 		require.NoError(t, err)
-		io.Copy(io.Discard, resp.Body)
+		_, err = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, err)
 		resp.Body.Close()
 	}
 
@@ -308,7 +313,8 @@ func TestHTTPServer_Logging(t *testing.T) {
 		}
 		w.Header().Set("X-Custom-Header", "test-value")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, err := w.Write([]byte(`{"status":"ok"}`))
+		require.NoError(t, err)
 	})
 
 	// Create a logger that writes to a buffer
@@ -327,13 +333,15 @@ func TestHTTPServer_Logging(t *testing.T) {
 	// Make a successful request
 	resp, err := http.Get(ts.URL + "/test")
 	require.NoError(t, err)
-	io.Copy(io.Discard, resp.Body)
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
 	resp.Body.Close()
 
 	// Make an error request
 	resp, err = http.Get(ts.URL + "/error")
 	require.NoError(t, err)
-	io.Copy(io.Discard, resp.Body)
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
 	resp.Body.Close()
 
 	// Check logs
