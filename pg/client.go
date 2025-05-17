@@ -26,6 +26,7 @@ import (
 	"net"
 	"strconv"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/tracelog"
@@ -50,6 +51,8 @@ type (
 		user     string
 		password string
 		database string
+
+		debug bool
 
 		poolSize int32
 
@@ -153,6 +156,13 @@ func WithRegisterer(r prometheus.Registerer) Option {
 	}
 }
 
+// WithDebug enables debug logging for the client.
+func WithDebug() Option {
+	return func(c *Client) {
+		c.debug = true
+	}
+}
+
 // NewClient creates a new database client with customizable options
 // for logging, tracing, TLS, and Prometheus metrics.
 //
@@ -208,13 +218,21 @@ func NewClient(options ...Option) (*Client, error) {
 		),
 	)
 
-	config.ConnConfig.Tracer = multitracer.New(
+	tracers := []pgx.QueryTracer{
 		&tracer{c.tracer},
-		&tracelog.TraceLog{
-			Logger:   &logger{c.logger}, // TODO not enable tracelog by default
-			LogLevel: tracelog.LogLevelInfo,
-		},
-	)
+	}
+
+	if c.debug {
+		tracers = append(
+			tracers,
+			&tracelog.TraceLog{
+				Logger:   &logger{c.logger},
+				LogLevel: tracelog.LogLevelInfo,
+			},
+		)
+	}
+
+	config.ConnConfig.Tracer = multitracer.New(tracers...)
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
