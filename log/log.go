@@ -214,6 +214,8 @@ func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr)
 		)
 	}
 
+	args = append(args, slog.String("name", l.path))
+
 	l.logger.LogAttrs(ctx, level, msg, args...)
 }
 
