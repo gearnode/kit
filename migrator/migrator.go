@@ -23,13 +23,15 @@ import (
 	"path"
 	"sort"
 
+	"go.gearno.de/kit/log"
 	"go.gearno.de/kit/pg"
 )
 
 type (
 	Migrator struct {
-		pg   *pg.Client
-		disk FS
+		pg     *pg.Client
+		disk   FS
+		logger *log.Logger
 	}
 
 	Migration struct {
@@ -49,10 +51,11 @@ const (
 	MigrationAdvisoryLock pg.AdvisoryLock = 0
 )
 
-func NewMigrator(pg *pg.Client, disk FS) *Migrator {
+func NewMigrator(pg *pg.Client, disk FS, l *log.Logger) *Migrator {
 	return &Migrator{
-		pg:   pg,
-		disk: disk,
+		pg:     pg,
+		disk:   disk,
+		logger: l,
 	}
 }
 
@@ -92,7 +95,7 @@ func (m *Migrator) Run(ctx context.Context, dirname string) error {
 					continue
 				}
 
-				// c.logger.Info("applying migration", zap.String("version", migration.Version))
+				m.logger.Info("applying migration", log.String("version", migration.Version))
 
 				err := m.pg.WithTx(
 					ctx,
