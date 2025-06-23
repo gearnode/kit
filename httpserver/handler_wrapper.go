@@ -48,6 +48,8 @@ type (
 		tracer          trace.Tracer
 		logger          *log.Logger
 	}
+
+	ctxKey struct{ name string }
 )
 
 const (
@@ -58,7 +60,14 @@ var (
 	internalErrorResponse = map[string]string{
 		"error": "internal error",
 	}
+
+	loggerRequestContextKey = &ctxKey{name: "loggerRequest"}
 )
+
+func LoggerFromContext(ctx context.Context) *log.Logger {
+	logger, _ := ctx.Value(loggerRequestContextKey).(*log.Logger)
+	return logger
+}
 
 func newHandlerWrapper(
 	next http.Handler,
@@ -215,6 +224,8 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// router will require to much works to have proper sub router
 	// support, a task for later.
 	ctx = context.WithValue(ctx, chi.RouteCtxKey, chi.NewRouteContext())
+
+	ctx = context.WithValue(ctx, loggerRequestContextKey, logger)
 
 	defer func() {
 		duration := time.Since(start)
