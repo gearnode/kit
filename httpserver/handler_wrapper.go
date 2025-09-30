@@ -91,7 +91,13 @@ func newHandlerWrapper(
 		},
 		metricLabels,
 	)
-	registerer.MustRegister(requestsTotal)
+	if err := registerer.Register(requestsTotal); err != nil {
+		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			requestsTotal = are.ExistingCollector.(*prometheus.CounterVec)
+		} else {
+			panic(err)
+		}
+	}
 
 	requestDuration := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -102,7 +108,13 @@ func newHandlerWrapper(
 		},
 		metricLabels,
 	)
-	registerer.MustRegister(requestDuration)
+	if err := registerer.Register(requestDuration); err != nil {
+		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			requestDuration = are.ExistingCollector.(*prometheus.HistogramVec)
+		} else {
+			panic(err)
+		}
+	}
 
 	requestSize := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -113,7 +125,13 @@ func newHandlerWrapper(
 		},
 		metricLabels,
 	)
-	registerer.MustRegister(requestSize)
+	if err := registerer.Register(requestSize); err != nil {
+		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			requestSize = are.ExistingCollector.(*prometheus.HistogramVec)
+		} else {
+			panic(err)
+		}
+	}
 
 	responseSize := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -124,7 +142,13 @@ func newHandlerWrapper(
 		},
 		metricLabels,
 	)
-	registerer.MustRegister(responseSize)
+	if err := registerer.Register(responseSize); err != nil {
+		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			responseSize = are.ExistingCollector.(*prometheus.HistogramVec)
+		} else {
+			panic(err)
+		}
+	}
 
 	return &handlerWrapper{
 		next:   next,
