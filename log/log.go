@@ -18,6 +18,7 @@ package log
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -31,6 +32,7 @@ type (
 	// flexible output configuration.
 	Logger struct {
 		logger     *slog.Logger
+		format     Format
 		output     io.Writer
 		path       string
 		level      *slog.LevelVar
@@ -46,6 +48,8 @@ type (
 	// Attr represents an attribute (key-value pair) added to log
 	// entries for structured logging.
 	Attr = slog.Attr
+
+	Format = string
 )
 
 var (
@@ -53,6 +57,9 @@ var (
 	LevelError = slog.LevelError
 	LevelWarn  = slog.LevelWarn
 	LevelDebug = slog.LevelDebug
+
+	FormatJSON Format = "json"
+	FormatText Format = "text"
 )
 
 // WithLevel sets the logging level for the Logger.
@@ -83,6 +90,12 @@ func WithName(name string) Option {
 func WithAttributes(attrs ...Attr) Option {
 	return func(l *Logger) {
 		l.attributes = attrs
+	}
+}
+
+func WithFormat(format Format) Option {
+	return func(l *Logger) {
+		l.format = format
 	}
 }
 
@@ -143,20 +156,34 @@ func NewLogger(options ...Option) *Logger {
 	l := &Logger{
 		output: os.Stderr,
 		level:  new(slog.LevelVar),
+		format: FormatJSON,
 	}
 
 	for _, option := range options {
 		option(l)
 	}
 
-	handler := slog.NewJSONHandler(
-		l.output,
-		&slog.HandlerOptions{
-			Level: l.level,
-		},
-	).WithAttrs(l.attributes)
+	var handler slog.Handler
+	switch l.format {
+	case FormatText:
+		handler = slog.NewTextHandler(
+			l.output,
+			&slog.HandlerOptions{
+				Level: l.level,
+			},
+		)
+	case FormatJSON:
+		handler = slog.NewJSONHandler(
+			l.output,
+			&slog.HandlerOptions{
+				Level: l.level,
+			},
+		)
+	default:
+		panic(fmt.Errorf("unsupported format %s for logger %s", l.format, l.path))
+	}
 
-	l.logger = slog.New(handler)
+	l.logger = slog.New(handler.WithAttrs(l.attributes))
 
 	return l
 }
@@ -171,6 +198,7 @@ func (l *Logger) With(attrs ...Attr) *Logger {
 		WithAttributes(
 			append(l.attributes, attrs...)...,
 		),
+		WithFormat(l.format),
 	)
 }
 
@@ -187,6 +215,7 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 		WithOutput(l.output),
 		WithLevel(l.level.Level()),
 		WithAttributes(l.attributes...),
+		WithFormat(l.format),
 	}
 
 	options = append(inheritedOptions, options...)

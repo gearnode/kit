@@ -84,15 +84,10 @@ type (
 
 func NewUnit(main Runnable, name, version, environment string) *Unit {
 	return &Unit{
-		name: name,
-		main: main,
-		logger: log.NewLogger(
-			log.WithName(name),
-			log.WithAttributes(
-				log.String("version", version),
-				log.String("environment", environment),
-			),
-		),
+		name:        name,
+		version:     version,
+		environment: environment,
+		main:        main,
 		config: &Config{
 			Metrics: MetricsConfig{
 				Addr: ":9090",
@@ -116,6 +111,7 @@ func (u *Unit) Run() error {
 func (u *Unit) RunContext(parentCtx context.Context) error {
 	filename := flag.String("cfg-file", "", "the path of the configuration file")
 	printCfg := flag.Bool("print-cfg", false, "print the loaded cfg and exit")
+	format := flag.String("format", "json", "log format")
 	help := flag.Bool("help", false, "show this help message")
 	version := flag.Bool("version", false, "show the service version")
 
@@ -153,6 +149,14 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 		return nil
 	}
 
+	u.logger = log.NewLogger(
+		log.WithName(u.name),
+		log.WithAttributes(
+			log.String("version", u.version),
+			log.String("environment", u.environment),
+		),
+		log.WithFormat(*format),
+	)
 	logger := u.logger.Named("unit")
 
 	ctx, cancel := context.WithCancelCause(parentCtx)
