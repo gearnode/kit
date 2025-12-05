@@ -93,6 +93,7 @@ func WithAttributes(attrs ...Attr) Option {
 	}
 }
 
+// WithFormat sets the format of the log output.
 func WithFormat(format Format) Option {
 	return func(l *Logger) {
 		l.format = format
