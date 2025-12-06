@@ -33,7 +33,7 @@ func RenderJSON(w http.ResponseWriter, statusCode int, v any) {
 }
 
 func RenderText(w http.ResponseWriter, statusCode int, v string) {
-	w.Header().Set("content-type", "text/plain; charset=ut8")
+	w.Header().Set("content-type", "text/plain; charset=utf-8")
 	w.WriteHeader(statusCode)
 	_, err := w.Write([]byte(v))
 	if err != nil {
