@@ -318,7 +318,7 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 
 		logger = logger.With(
-			log.Int("http_reponse_size", ww.BytesWritten()),
+			log.Int("http_response_size", ww.BytesWritten()),
 			log.Int("http_response_status", ww.Status()),
 			log.String("http_request_path_pattern", chi.RouteContext(ctx).RoutePattern()),
 		)

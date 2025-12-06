@@ -189,7 +189,7 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 			cancel(fmt.Errorf("traces exporter crashed: %w", err))
 		}
 
-		logger.Info("metrics server shutdown")
+		logger.Info("trace exporter shutdown")
 	}()
 
 	var registry prometheus.Registerer
@@ -404,7 +404,7 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 	if _, ok := config["unit"]; ok {
 		encoded, _ := json.Marshal(config["unit"])
 		if err := json.Unmarshal(encoded, u.config); err != nil {
-			return fmt.Errorf("cannot decode %q config section: %w", "uniq", err)
+			return fmt.Errorf("cannot decode %q config section: %w", "unit", err)
 		}
 	}
 
