@@ -69,7 +69,7 @@ func connectionConfigAttributes(config *pgx.ConnConfig) []trace.SpanStartOption 
 			trace.WithAttributes(
 				semconv.NetworkPeerAddress(config.Host),
 				semconv.NetworkPeerPort(int(config.Port)),
-				semconv.DBSystemPostgreSQL,
+				semconv.DBSystemNamePostgreSQL,
 			),
 		}
 	}

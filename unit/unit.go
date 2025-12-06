@@ -347,7 +347,7 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 				semconv.SchemaURL,
 				semconv.ServiceName(u.name),
 				semconv.ServiceVersion(u.version),
-				semconv.DeploymentEnvironment(u.environment),
+				semconv.DeploymentEnvironmentName(u.environment),
 			),
 		),
 	)
