@@ -269,7 +269,7 @@ func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- promethe
 	go func() {
 		err = httpServer.Serve(listener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErrCh <- fmt.Errorf("cannot server http request: %w", err)
+			serverErrCh <- fmt.Errorf("cannot serve http request: %w", err)
 		}
 		close(serverErrCh)
 	}()
