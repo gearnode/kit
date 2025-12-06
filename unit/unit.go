@@ -385,6 +385,7 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 	if err != nil {
 		return fmt.Errorf("cannot open file: %w", err)
 	}
+	defer file.Close()
 
 	blob, err := io.ReadAll(file)
 	if err != nil {
