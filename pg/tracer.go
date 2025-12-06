@@ -303,8 +303,11 @@ func (t *tracer) TracePrepareStart(
 	}
 
 	if data.Name != "" {
-		trace.WithAttributes(
-			PrepareStmtNameKey.String(data.Name),
+		opts = append(
+			opts,
+			trace.WithAttributes(
+				PrepareStmtNameKey.String(data.Name),
+			),
 		)
 	}
 
