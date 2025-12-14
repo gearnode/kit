@@ -58,8 +58,9 @@ var (
 	LevelWarn  = slog.LevelWarn
 	LevelDebug = slog.LevelDebug
 
-	FormatJSON Format = "json"
-	FormatText Format = "text"
+	FormatJSON   Format = "json"
+	FormatPretty Format = "pretty"
+	FormatText   Format = "text"
 )
 
 // WithLevel sets the logging level for the Logger.
@@ -166,6 +167,13 @@ func NewLogger(options ...Option) *Logger {
 
 	var handler slog.Handler
 	switch l.format {
+	case FormatPretty:
+		handler = NewPrettyHandler(
+			l.output,
+			&slog.HandlerOptions{
+				Level: l.level,
+			},
+		)
 	case FormatText:
 		handler = slog.NewTextHandler(
 			l.output,
