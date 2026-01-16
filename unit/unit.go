@@ -241,7 +241,7 @@ func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- promethe
 			EnableOpenMetrics:   true,
 			MaxRequestsInFlight: 10,
 			ErrorHandling:       promhttp.ContinueOnError,
-			ErrorLog:            stdlog.New(logger, "", 0),
+			ErrorLog:            stdlog.New(logger.NewWriter(log.LevelError), "", 0),
 		},
 	)
 
