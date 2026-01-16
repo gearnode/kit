@@ -37,6 +37,7 @@ type (
 		path       string
 		level      *slog.LevelVar
 		attributes []Attr
+		match      Match
 	}
 
 	// Option configures Logger during initialization.
@@ -50,6 +51,11 @@ type (
 	Attr = slog.Attr
 
 	Format = string
+
+	// Match is a function that determines whether a log message
+	// should be logged. Return true to log the message, false to
+	// skip it.
+	Match func(level Level, msg string, attrs []Attr) bool
 )
 
 var (
@@ -98,6 +104,15 @@ func WithAttributes(attrs ...Attr) Option {
 func WithFormat(format Format) Option {
 	return func(l *Logger) {
 		l.format = format
+	}
+}
+
+// WithMatch sets a match function that determines whether a log
+// message should be logged. If the match returns false, the message
+// is skipped.
+func SkipMatch(match Match) Option {
+	return func(l *Logger) {
+		l.match = match
 	}
 }
 
@@ -198,9 +213,9 @@ func NewLogger(options ...Option) *Logger {
 }
 
 // With returns a new Logger with additional attributes, keeping the
-// original Logger’s name and settings.
+// original Logger's name and settings.
 func (l *Logger) With(attrs ...Attr) *Logger {
-	return NewLogger(
+	opts := []Option{
 		WithName(l.path),
 		WithOutput(l.output),
 		WithLevel(l.level.Level()),
@@ -208,11 +223,15 @@ func (l *Logger) With(attrs ...Attr) *Logger {
 			append(l.attributes, attrs...)...,
 		),
 		WithFormat(l.format),
-	)
+	}
+	if l.match != nil {
+		opts = append(opts, SkipMatch(l.match))
+	}
+	return NewLogger(opts...)
 }
 
 // Named returns a new Logger with a modified name, appending the
-// given name to the current Logger’s path.
+// given name to the current Logger's path.
 func (l *Logger) Named(name string, options ...Option) *Logger {
 	newPath := l.path
 	if newPath != "" {
@@ -226,6 +245,9 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 		WithAttributes(l.attributes...),
 		WithFormat(l.format),
 	}
+	if l.match != nil {
+		inheritedOptions = append(inheritedOptions, SkipMatch(l.match))
+	}
 
 	options = append(inheritedOptions, options...)
 	options = append(options, WithName(newPath))
@@ -236,6 +258,10 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 // Log logs a message at the specified level with optional attributes,
 // adding trace and span IDs if the context has a span.
 func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr) {
+	if l.match != nil && !l.match(level, msg, args) {
+		return
+	}
+
 	span := trace.SpanFromContext(ctx)
 
 	if span.IsRecording() {
