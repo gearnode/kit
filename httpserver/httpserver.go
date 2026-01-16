@@ -97,7 +97,7 @@ func NewServer(addr string, h http.Handler, options ...Option) *http.Server {
 	return &http.Server{
 		Addr:              addr,
 		Handler:           handler,
-		ErrorLog:          stdlog.New(logger, "", 0),
+		ErrorLog:          stdlog.New(logger.NewWriter(log.LevelError), "", 0),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       15 * time.Second,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {

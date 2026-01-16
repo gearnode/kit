@@ -17,14 +17,30 @@
 package log
 
 import (
+	"context"
 	"io"
+	"strings"
+)
+
+type (
+	Writer struct {
+		logger *Logger
+		level  Level
+	}
 )
 
 var (
-	_ io.Writer = (*Logger)(nil)
+	_ io.Writer = (*Writer)(nil)
 )
 
-func (l *Logger) Write(b []byte) (n int, err error) {
-	l.logger.Error(string(b))
+func (l *Logger) NewWriter(level Level) io.Writer {
+	return &Writer{
+		logger: l,
+		level:  level,
+	}
+}
+
+func (w *Writer) Write(b []byte) (n int, err error) {
+	w.logger.Log(context.Background(), w.level, strings.TrimSpace(string(b)))
 	return len(b), nil
 }
