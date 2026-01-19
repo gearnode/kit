@@ -258,7 +258,7 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 // Log logs a message at the specified level with optional attributes,
 // adding trace and span IDs if the context has a span.
 func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr) {
-	if l.match != nil && !l.match(level, msg, args) {
+	if l.match != nil && l.match(level, msg, args) {
 		return
 	}
 
