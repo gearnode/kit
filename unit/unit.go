@@ -37,6 +37,7 @@ import (
 	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	traceSdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
@@ -353,6 +354,7 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 	)
 
 	otel.SetTracerProvider(traceProvider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	initialized <- traceProvider
 
