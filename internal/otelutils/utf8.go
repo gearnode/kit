@@ -55,4 +55,3 @@ func SanitizeError(err error) error {
 	}
 	return sanitizedError{err: err}
 }
-

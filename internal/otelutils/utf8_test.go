@@ -33,4 +33,3 @@ func TestSanitizeError(t *testing.T) {
 		t.Fatalf("expected sanitized error string to be valid UTF-8, got: %q", serr.Error())
 	}
 }
-

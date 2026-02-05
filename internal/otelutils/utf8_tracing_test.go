@@ -99,4 +99,3 @@ func assertValidKeyValues(t *testing.T, kvs []attribute.KeyValue) {
 		}
 	}
 }
-

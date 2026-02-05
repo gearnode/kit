@@ -199,4 +199,3 @@ func sanitizeKeyValues(in []attribute.KeyValue) []attribute.KeyValue {
 	}
 	return out
 }
-
