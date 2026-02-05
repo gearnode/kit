@@ -34,6 +34,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.gearno.de/kit/internal/otelutils"
 	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -353,10 +354,11 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 		),
 	)
 
-	otel.SetTracerProvider(traceProvider)
+	utf8TraceProvider := otelutils.WrapTracerProvider(traceProvider)
+	otel.SetTracerProvider(utf8TraceProvider)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
-	initialized <- traceProvider
+	initialized <- utf8TraceProvider
 
 	logger.Info("trace exporter started")
 
