@@ -164,7 +164,7 @@ type flushWriter struct {
 
 func (f *flushWriter) Flush() {
 	f.wroteHeader = true
-	fl := f.basicWriter.ResponseWriter.(http.Flusher)
+	fl := f.ResponseWriter.(http.Flusher)
 	fl.Flush()
 }
 
@@ -176,7 +176,7 @@ type hijackWriter struct {
 }
 
 func (f *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	hj := f.basicWriter.ResponseWriter.(http.Hijacker)
+	hj := f.ResponseWriter.(http.Hijacker)
 	return hj.Hijack()
 }
 
@@ -189,12 +189,12 @@ type flushHijackWriter struct {
 
 func (f *flushHijackWriter) Flush() {
 	f.wroteHeader = true
-	fl := f.basicWriter.ResponseWriter.(http.Flusher)
+	fl := f.ResponseWriter.(http.Flusher)
 	fl.Flush()
 }
 
 func (f *flushHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	hj := f.basicWriter.ResponseWriter.(http.Hijacker)
+	hj := f.ResponseWriter.(http.Hijacker)
 	return hj.Hijack()
 }
 

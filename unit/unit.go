@@ -263,7 +263,7 @@ func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- promethe
 	if err != nil {
 		return fmt.Errorf("cannot listen on %q: %w", httpServer.Addr, err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	initialized <- registry
 
@@ -389,7 +389,7 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 	if err != nil {
 		return fmt.Errorf("cannot open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	blob, err := io.ReadAll(file)
 	if err != nil {

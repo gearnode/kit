@@ -216,12 +216,12 @@ func NewClient(options ...Option) (*Client, error) {
 	}
 
 	config, _ := pgxpool.ParseConfig("")
-	config.ConnConfig.Config.Host = host
-	config.ConnConfig.Config.Port = uint16(port)
-	config.ConnConfig.Config.User = c.user
-	config.ConnConfig.Config.Password = c.password
-	config.ConnConfig.Config.Database = c.database
-	config.ConnConfig.Config.TLSConfig = c.tlsConfig
+	config.ConnConfig.Host = host
+	config.ConnConfig.Port = uint16(port)
+	config.ConnConfig.User = c.user
+	config.ConnConfig.Password = c.password
+	config.ConnConfig.Database = c.database
+	config.ConnConfig.TLSConfig = c.tlsConfig
 	config.MinConns = 1
 	config.MaxConns = int32(c.poolSize)
 

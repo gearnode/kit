@@ -75,7 +75,7 @@ func TestHTTPServer_BasicOperation(t *testing.T) {
 	// Send the request
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -150,7 +150,7 @@ func TestHTTPServer_PanicHandling(t *testing.T) {
 	// Make a test request
 	resp, err := http.Get(ts.URL + "/panic")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
@@ -180,7 +180,7 @@ func TestHTTPServer_PanicHandling(t *testing.T) {
 	assert.NotPanics(t, func() {
 		resp, err := http.Get(ts.URL + "/panic")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	})
 }
@@ -224,7 +224,7 @@ func TestHTTPServer_Propagation(t *testing.T) {
 	// Send the request
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -381,7 +381,7 @@ func TestHTTPServer_Health(t *testing.T) {
 	// Make a request to the health endpoint
 	resp, err := http.Get(ts.URL + "/health")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
