@@ -171,28 +171,28 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	metricsServerCtx, stopMetricsServer := context.WithCancel(context.Background())
 	defer stopMetricsServer()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := u.runMetricsServer(metricsServerCtx, metricsInitialized); err != nil {
-			cancel(fmt.Errorf("metrics server crashed: %w", err))
-		}
+	wg.Go(
+		func() {
+			if err := u.runMetricsServer(metricsServerCtx, metricsInitialized); err != nil {
+				cancel(fmt.Errorf("metrics server crashed: %w", err))
+			}
 
-		logger.Info("metrics server shutdown")
-	}()
+			logger.Info("metrics server shutdown")
+		},
+	)
 
 	tracingExporterCtx, stopTracingExporter := context.WithCancel(context.Background())
 	defer stopTracingExporter()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := u.runTracingExporter(tracingExporterCtx, tracingInitialized); err != nil {
-			cancel(fmt.Errorf("traces exporter crashed: %w", err))
-		}
+	wg.Go(
+		func() {
+			if err := u.runTracingExporter(tracingExporterCtx, tracingInitialized); err != nil {
+				cancel(fmt.Errorf("traces exporter crashed: %w", err))
+			}
 
-		logger.Info("trace exporter shutdown")
-	}()
+			logger.Info("trace exporter shutdown")
+		},
+	)
 
 	var registry prometheus.Registerer
 	var traceProvider trace.TracerProvider
@@ -209,14 +209,14 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 		return context.Cause(ctx)
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(
+		func() {
 
-		if err := u.main.Run(ctx, u.logger, registry, traceProvider); err != nil {
-			cancel(err)
-		}
-	}()
+			if err := u.main.Run(ctx, u.logger, registry, traceProvider); err != nil {
+				cancel(err)
+			}
+		},
+	)
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
