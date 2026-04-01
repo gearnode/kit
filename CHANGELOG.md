@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.2.0] - 2026-04-02
+
+### Breaking Changes
+
+- **pg**: `ExecFunc` signature changed from `func(Conn) error` to `func(context.Context, Conn) error`. All callbacks passed to `WithConn`, `WithTx`, and `WithAdvisoryLock` must be updated to accept a `context.Context` as the first parameter. The provided context carries the active transaction, enabling savepoint support in nested calls.
+
+### Added
+
+- **pg**: Nested `WithTx` calls now create savepoints instead of independent transactions. If the inner callback fails, only the savepoint is rolled back; the outer transaction remains active.
+- **pg**: `WithoutTx` function to obtain a context with the active transaction removed, useful when a nested call should start an independent transaction.
+
+### Changed
+
+- Updated dependencies
+
 ## [0.1.1] - 2026-02-05
 
 ### Fixed
