@@ -71,14 +71,16 @@ func (m *Migrator) Run(ctx context.Context, dirname string) error {
 		return nil
 	}
 
+	independentCtx := pg.WithoutTx(ctx)
+
 	err := m.pg.WithAdvisoryLock(
 		ctx,
 		MigrationAdvisoryLock,
 		func(conn pg.Conn) error {
 			err := m.pg.WithConn(
-				ctx,
-				func(conn pg.Conn) error {
-					return createIfNotExistVersionsTable(ctx, conn)
+				independentCtx,
+				func(connCtx context.Context, conn pg.Conn) error {
+					return createIfNotExistVersionsTable(connCtx, conn)
 				},
 			)
 			if err != nil {
@@ -98,9 +100,9 @@ func (m *Migrator) Run(ctx context.Context, dirname string) error {
 				m.logger.Info("applying migration", log.String("version", migration.Version))
 
 				err := m.pg.WithTx(
-					ctx,
-					func(conn pg.Conn) error {
-						return migration.Apply(ctx, conn)
+					independentCtx,
+					func(txCtx context.Context, conn pg.Conn) error {
+						return migration.Apply(txCtx, conn)
 					},
 				)
 				if err != nil {
