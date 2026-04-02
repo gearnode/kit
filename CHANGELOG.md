@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-02
+
+The transaction API has been redesigned to make savepoints explicit
+rather than implicit. Previously, `WithTx` detected a parent
+transaction in the context and silently created a savepoint, which
+made it hard to reason about whether you were getting a new
+transaction or a savepoint. The new design separates the two
+operations: `WithTx` always opens a fresh transaction, and savepoints
+are created explicitly via `Tx.Savepoint`. This gives the type system
+a role in enforcing transactional intent — `Tx` means "you're in a
+transaction," `Querier` means "you can run queries," and the compiler
+catches misuse rather than leaving it to runtime.
+
+### Breaking Changes
+
+- **pg**: `Conn` interface renamed to `Querier`. All code referencing `pg.Conn` must be updated to `pg.Querier`.
+- **pg**: `ExecFunc` is now generic: `ExecFunc[Q Querier]`. `WithConn` accepts `ExecFunc[Querier]`, `WithTx` accepts `ExecFunc[Tx]`.
+- **pg**: `WithTx` callback now receives `pg.Tx` instead of `pg.Conn`. `Tx` extends `Querier` with a `Savepoint` method.
+- **pg**: `WithTx` always opens a new connection and transaction. It no longer implicitly creates savepoints via context detection.
+- **pg**: Removed `WithoutTx` — no longer needed since `WithTx` always starts a fresh transaction.
+- **migrator**: `Migration.Apply` now takes `pg.Tx` instead of `pg.Querier` to make the transactional requirement explicit.
+
+### Added
+
+- **pg**: `Tx` interface with explicit `Savepoint(ctx, ExecFunc[Querier]) error` method for creating savepoints within a transaction.
+- **pg**: `Querier` interface (renamed from `Conn`) representing the base capability of running SQL queries.
+
 ## [0.2.0] - 2026-04-02
 
 ### Breaking Changes
