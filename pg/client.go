@@ -66,24 +66,10 @@ type (
 		registerer     prometheus.Registerer
 	}
 
-	ExecFunc func(context.Context, Conn) error
+	ExecFunc[Q Querier] func(context.Context, Q) error
 
 	AdvisoryLock = uint32
-
-	txKey struct{}
 )
-
-func txFromContext(ctx context.Context) pgx.Tx {
-	tx, _ := ctx.Value(txKey{}).(pgx.Tx)
-	return tx
-}
-
-// WithoutTx returns a copy of ctx with the active transaction
-// removed. Use this when a nested call should start an independent
-// transaction instead of reusing the parent as a savepoint.
-func WithoutTx(ctx context.Context) context.Context {
-	return context.WithValue(ctx, txKey{}, nil)
-}
 
 const (
 	BaseAdvisoryLockId uint32 = 42
@@ -279,7 +265,7 @@ func (c *Client) Close() {
 //
 // Example:
 //
-//	err := client.WithConn(ctx, func(conn pg.Conn) error {
+//	err := client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
 //	    _, err := conn.Exec(ctx, "SELECT * FROM users")
 //	    return err
 //	})
@@ -288,7 +274,7 @@ func (c *Client) Close() {
 // and logs any errors.
 func (c *Client) WithConn(
 	ctx context.Context,
-	exec ExecFunc,
+	exec ExecFunc[Querier],
 ) error {
 	var (
 		rootSpan = trace.SpanFromContext(ctx)
@@ -326,27 +312,24 @@ func (c *Client) WithConn(
 	return nil
 }
 
-// WithTx executes the given ExecFunc within a transaction. This
-// method begins a transaction, executing `exec` within it. If `exec`
-// returns an error, the transaction is rolled back; otherwise, it
-// commits.
+// WithTx executes the given ExecFunc within a new transaction. This
+// method acquires a connection, begins a transaction, and executes
+// exec within it. If exec returns an error, the transaction is rolled
+// back; otherwise, it commits.
 //
-// When called within an existing transaction (i.e. nested WithTx),
-// a savepoint is created instead of a new transaction. If `exec`
-// returns an error, only the savepoint is rolled back; the outer
-// transaction remains active and can still be committed.
+// Use Tx.Savepoint inside the callback to create savepoints within
+// the transaction.
 //
 // Example:
 //
-//	err := client.WithTx(ctx, func(ctx context.Context, tx pg.Conn) error {
+//	err := client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
 //	    if _, err := tx.Exec(ctx, "DELETE FROM users WHERE id = $1", id); err != nil {
 //	        return err
 //	    }
 //
-//	    // Nested call creates a savepoint; failure here does not
-//	    // roll back the DELETE above.
-//	    if err := client.WithTx(ctx, func(ctx context.Context, tx pg.Conn) error {
-//	        _, err := tx.Exec(ctx, "INSERT INTO audit_log (...) VALUES (...)")
+//	    // Savepoint failure does not roll back the DELETE above.
+//	    if err := tx.Savepoint(ctx, func(ctx context.Context, q pg.Querier) error {
+//	        _, err := q.Exec(ctx, "INSERT INTO audit_log (...) VALUES (...)")
 //	        return err
 //	    }); err != nil {
 //	        log.Warn("audit failed, continuing", "err", err)
@@ -359,7 +342,7 @@ func (c *Client) WithConn(
 // and logs any errors.
 func (c *Client) WithTx(
 	ctx context.Context,
-	exec ExecFunc,
+	exec ExecFunc[Tx],
 ) error {
 	var (
 		rootSpan = trace.SpanFromContext(ctx)
@@ -375,67 +358,6 @@ func (c *Client) WithTx(
 		defer span.End()
 	}
 
-	if parentTx := txFromContext(ctx); parentTx != nil {
-		if span != nil {
-			span.SetAttributes(attribute.Bool("db.savepoint", true))
-		}
-
-		return c.withSavepoint(ctx, span, parentTx, exec)
-	}
-
-	return c.withNewTx(ctx, span, exec)
-}
-
-func (c *Client) withSavepoint(
-	ctx context.Context,
-	span trace.Span,
-	parentTx pgx.Tx,
-	exec ExecFunc,
-) error {
-	tx, err := parentTx.Begin(ctx)
-	if err != nil {
-		err := fmt.Errorf("cannot create savepoint: %w", err)
-		if span != nil {
-			recordError(span, err)
-		}
-
-		return err
-	}
-
-	txCtx := context.WithValue(ctx, txKey{}, tx)
-
-	if err := exec(txCtx, tx); err != nil {
-		if err2 := tx.Rollback(ctx); err2 != nil {
-			err = errors.Join(
-				err,
-				fmt.Errorf("cannot rollback savepoint: %w", err2),
-			)
-		}
-
-		if span != nil {
-			recordError(span, err)
-		}
-
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		err := fmt.Errorf("cannot release savepoint: %w", err)
-		if span != nil {
-			recordError(span, err)
-		}
-
-		return err
-	}
-
-	return nil
-}
-
-func (c *Client) withNewTx(
-	ctx context.Context,
-	span trace.Span,
-	exec ExecFunc,
-) error {
 	conn, err := c.pool.Acquire(ctx)
 	if err != nil {
 		err := fmt.Errorf("cannot acquire connection: %w", err)
@@ -447,7 +369,7 @@ func (c *Client) withNewTx(
 	}
 	defer conn.Release()
 
-	tx, err := conn.Begin(ctx)
+	innerTx, err := conn.Begin(ctx)
 	if err != nil {
 		err := fmt.Errorf("cannot begin transaction: %w", err)
 		if span != nil {
@@ -457,10 +379,10 @@ func (c *Client) withNewTx(
 		return err
 	}
 
-	txCtx := context.WithValue(ctx, txKey{}, tx)
+	tx := &pgxTx{inner: innerTx, tracer: c.tracer}
 
-	if err := exec(txCtx, tx); err != nil {
-		if err2 := tx.Rollback(ctx); err2 != nil {
+	if err := exec(ctx, tx); err != nil {
+		if err2 := innerTx.Rollback(ctx); err2 != nil {
 			err = errors.Join(
 				err,
 				fmt.Errorf("cannot rollback transaction: %w", err2),
@@ -474,7 +396,7 @@ func (c *Client) withNewTx(
 		return err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := innerTx.Commit(ctx); err != nil {
 		err := fmt.Errorf("cannot commit transaction: %w", err)
 		if span != nil {
 			recordError(span, err)
@@ -489,7 +411,7 @@ func (c *Client) withNewTx(
 func (c *Client) WithAdvisoryLock(
 	ctx context.Context,
 	id AdvisoryLock,
-	f func(Conn) error,
+	f func(Querier) error,
 ) error {
 	var (
 		rootSpan = trace.SpanFromContext(ctx)
@@ -510,9 +432,9 @@ func (c *Client) WithAdvisoryLock(
 
 	return c.WithTx(
 		ctx,
-		func(txCtx context.Context, conn Conn) error {
+		func(txCtx context.Context, tx Tx) error {
 			q := "SELECT pg_advisory_xact_lock($1, $2)"
-			_, err := conn.Exec(txCtx, q, BaseAdvisoryLockId, id)
+			_, err := tx.Exec(txCtx, q, BaseAdvisoryLockId, id)
 			if err != nil {
 				err = fmt.Errorf("cannot acquire advisory lock: %w", err)
 				if rootSpan.IsRecording() {
@@ -523,7 +445,7 @@ func (c *Client) WithAdvisoryLock(
 				return err
 			}
 
-			err = f(conn)
+			err = f(tx)
 			if err != nil {
 				if rootSpan.IsRecording() {
 					span.SetStatus(codes.Error, err.Error())

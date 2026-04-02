@@ -18,16 +18,17 @@ package pg
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type (
-	// Conn represents a PostgreSQL connection with basic methods
-	// for executing SQL commands, querying rows, performing bulk copy
-	// operations, and sending batch requests.
-	Conn interface {
+	// Querier represents something you can run SQL queries against.
+	Querier interface {
 		Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 
 		Query(context.Context, string, ...any) (pgx.Rows, error)
@@ -36,4 +37,92 @@ type (
 		CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error)
 		SendBatch(context.Context, *pgx.Batch) pgx.BatchResults
 	}
+
+	// Tx represents an active database transaction. It extends
+	// Querier with the ability to create savepoints.
+	Tx interface {
+		Querier
+
+		Savepoint(context.Context, ExecFunc[Querier]) error
+	}
+
+	pgxTx struct {
+		inner  pgx.Tx
+		tracer trace.Tracer
+	}
 )
+
+func (t *pgxTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return t.inner.Exec(ctx, sql, args...)
+}
+
+func (t *pgxTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return t.inner.Query(ctx, sql, args...)
+}
+
+func (t *pgxTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return t.inner.QueryRow(ctx, sql, args...)
+}
+
+func (t *pgxTx) CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error) {
+	return t.inner.CopyFrom(ctx, tableName, columnNames, rowSrc)
+}
+
+func (t *pgxTx) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
+	return t.inner.SendBatch(ctx, b)
+}
+
+// Savepoint executes fn within a savepoint. If fn returns an error,
+// the savepoint is rolled back; otherwise, it is released. The outer
+// transaction remains active regardless of the savepoint outcome.
+func (t *pgxTx) Savepoint(ctx context.Context, fn ExecFunc[Querier]) error {
+	var (
+		rootSpan = trace.SpanFromContext(ctx)
+		span     trace.Span
+	)
+
+	if rootSpan.IsRecording() {
+		ctx, span = t.tracer.Start(
+			ctx,
+			"Savepoint",
+			trace.WithSpanKind(trace.SpanKindClient),
+		)
+		defer span.End()
+	}
+
+	sp, err := t.inner.Begin(ctx)
+	if err != nil {
+		err := fmt.Errorf("cannot create savepoint: %w", err)
+		if span != nil {
+			recordError(span, err)
+		}
+
+		return err
+	}
+
+	if err := fn(ctx, sp); err != nil {
+		if err2 := sp.Rollback(ctx); err2 != nil {
+			err = errors.Join(
+				err,
+				fmt.Errorf("cannot rollback savepoint: %w", err2),
+			)
+		}
+
+		if span != nil {
+			recordError(span, err)
+		}
+
+		return err
+	}
+
+	if err := sp.Commit(ctx); err != nil {
+		err := fmt.Errorf("cannot release savepoint: %w", err)
+		if span != nil {
+			recordError(span, err)
+		}
+
+		return err
+	}
+
+	return nil
+}

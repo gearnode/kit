@@ -67,7 +67,7 @@ func newTestClient(t *testing.T, extra ...pg.Option) *pg.Client {
 
 	err = client.WithConn(
 		ctx,
-		func(ctx context.Context, conn pg.Conn) error {
+		func(ctx context.Context, conn pg.Querier) error {
 			_, err := conn.Exec(ctx, "SELECT 1")
 			return err
 		},
@@ -122,7 +122,7 @@ func TestNewClient(t *testing.T) {
 
 			err := client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					var result int
 					return conn.QueryRow(ctx, "SELECT 1").Scan(&result)
 				},
@@ -205,7 +205,7 @@ func TestWithConn(t *testing.T) {
 		func(t *testing.T) {
 			err := client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					_, err := conn.Exec(ctx,
 						"CREATE TEMPORARY TABLE test_with_conn (id serial PRIMARY KEY, name text NOT NULL)")
 					if err != nil {
@@ -239,7 +239,7 @@ func TestWithConn(t *testing.T) {
 			sentinel := errors.New("callback failed")
 			err := client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					return sentinel
 				},
 			)
@@ -259,7 +259,7 @@ func TestWithConn_Tracing(t *testing.T) {
 			ctx, span := tp.Tracer("test").Start(context.Background(), "test-root")
 			err := client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					_, err := conn.Exec(ctx, "SELECT 1")
 					return err
 				},
@@ -282,7 +282,7 @@ func TestWithConn_Tracing(t *testing.T) {
 			sentinel := errors.New("traced error")
 			err := client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					return sentinel
 				},
 			)
@@ -310,7 +310,7 @@ func TestWithTx(t *testing.T) {
 		t.Helper()
 		err := client.WithConn(
 			ctx,
-			func(ctx context.Context, conn pg.Conn) error {
+			func(ctx context.Context, conn pg.Querier) error {
 				_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS "+table)
 				if err != nil {
 					return err
@@ -325,7 +325,7 @@ func TestWithTx(t *testing.T) {
 		t.Cleanup(func() {
 			_ = client.WithConn(
 				context.Background(),
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS "+table)
 					return err
 				},
@@ -340,8 +340,8 @@ func TestWithTx(t *testing.T) {
 
 			err := client.WithTx(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
 						"INSERT INTO test_tx_commit (name) VALUES ($1)", "bob")
 					return err
 				},
@@ -350,7 +350,7 @@ func TestWithTx(t *testing.T) {
 
 			err = client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					var count int
 					err := conn.QueryRow(ctx,
 						"SELECT count(*) FROM test_tx_commit WHERE name = $1", "bob").Scan(&count)
@@ -371,8 +371,8 @@ func TestWithTx(t *testing.T) {
 			sentinel := errors.New("force rollback")
 			err := client.WithTx(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
 						"INSERT INTO test_tx_rollback (name) VALUES ($1)", "charlie")
 					if err != nil {
 						return err
@@ -384,7 +384,7 @@ func TestWithTx(t *testing.T) {
 
 			err = client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					var count int
 					err := conn.QueryRow(ctx,
 						"SELECT count(*) FROM test_tx_rollback WHERE name = $1", "charlie").Scan(&count)
@@ -398,22 +398,22 @@ func TestWithTx(t *testing.T) {
 	)
 
 	t.Run(
-		"nested savepoint commits both",
+		"savepoint commits both",
 		func(t *testing.T) {
 			setup(t, "test_tx_nested")
 
 			err := client.WithTx(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
 						"INSERT INTO test_tx_nested (name) VALUES ($1)", "outer")
 					if err != nil {
 						return err
 					}
 
-					return client.WithTx(
+					return tx.Savepoint(
 						ctx,
-						func(ctx context.Context, conn pg.Conn) error {
+						func(ctx context.Context, conn pg.Querier) error {
 							_, err := conn.Exec(ctx,
 								"INSERT INTO test_tx_nested (name) VALUES ($1)", "inner")
 							return err
@@ -425,7 +425,7 @@ func TestWithTx(t *testing.T) {
 
 			err = client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					var count int
 					err := conn.QueryRow(ctx, "SELECT count(*) FROM test_tx_nested").Scan(&count)
 					require.NoError(t, err)
@@ -438,22 +438,22 @@ func TestWithTx(t *testing.T) {
 	)
 
 	t.Run(
-		"nested savepoint rollback preserves outer",
+		"savepoint rollback preserves outer",
 		func(t *testing.T) {
 			setup(t, "test_tx_savepoint")
 
 			err := client.WithTx(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
 						"INSERT INTO test_tx_savepoint (name) VALUES ($1)", "outer")
 					if err != nil {
 						return err
 					}
 
-					_ = client.WithTx(
+					_ = tx.Savepoint(
 						ctx,
-						func(ctx context.Context, conn pg.Conn) error {
+						func(ctx context.Context, conn pg.Querier) error {
 							if _, err := conn.Exec(ctx,
 								"INSERT INTO test_tx_savepoint (name) VALUES ($1)", "inner_fail"); err != nil {
 								return err
@@ -469,7 +469,7 @@ func TestWithTx(t *testing.T) {
 
 			err = client.WithConn(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					var names []string
 					rows, err := conn.Query(ctx, "SELECT name FROM test_tx_savepoint ORDER BY name")
 					if err != nil {
@@ -492,6 +492,297 @@ func TestWithTx(t *testing.T) {
 			require.NoError(t, err)
 		},
 	)
+
+	t.Run(
+		"multiple sequential savepoints both succeed",
+		func(t *testing.T) {
+			setup(t, "test_tx_multi_sp")
+
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					if err := tx.Savepoint(
+						ctx,
+						func(ctx context.Context, q pg.Querier) error {
+							_, err := q.Exec(ctx,
+								"INSERT INTO test_tx_multi_sp (name) VALUES ($1)", "sp1")
+							return err
+						},
+					); err != nil {
+						return err
+					}
+
+					return tx.Savepoint(
+						ctx,
+						func(ctx context.Context, q pg.Querier) error {
+							_, err := q.Exec(ctx,
+								"INSERT INTO test_tx_multi_sp (name) VALUES ($1)", "sp2")
+							return err
+						},
+					)
+				},
+			)
+			require.NoError(t, err)
+
+			err = client.WithConn(
+				ctx,
+				func(ctx context.Context, conn pg.Querier) error {
+					var count int
+					err := conn.QueryRow(ctx,
+						"SELECT count(*) FROM test_tx_multi_sp").Scan(&count)
+					require.NoError(t, err)
+					assert.Equal(t, 2, count)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"sequential savepoints first succeeds second fails",
+		func(t *testing.T) {
+			setup(t, "test_tx_sp_mixed")
+
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					if err := tx.Savepoint(ctx, func(ctx context.Context, q pg.Querier) error {
+						_, err := q.Exec(ctx,
+							"INSERT INTO test_tx_sp_mixed (name) VALUES ($1)", "kept")
+						return err
+					}); err != nil {
+						return err
+					}
+
+					_ = tx.Savepoint(
+						ctx,
+						func(ctx context.Context, q pg.Querier) error {
+							_, err := q.Exec(ctx,
+								"INSERT INTO test_tx_sp_mixed (name) VALUES ($1)", "discarded")
+							if err != nil {
+								return err
+							}
+							return errors.New("second savepoint fails")
+						},
+					)
+
+					return nil
+				},
+			)
+			require.NoError(t, err)
+
+			err = client.WithConn(
+				ctx,
+				func(ctx context.Context, conn pg.Querier) error {
+					var names []string
+					rows, err := conn.Query(ctx,
+						"SELECT name FROM test_tx_sp_mixed ORDER BY name")
+					if err != nil {
+						return err
+					}
+					defer rows.Close()
+
+					for rows.Next() {
+						var n string
+						if err := rows.Scan(&n); err != nil {
+							return err
+						}
+						names = append(names, n)
+					}
+
+					assert.Equal(t, []string{"kept"}, names)
+					return rows.Err()
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"savepoint error propagated rolls back entire tx",
+		func(t *testing.T) {
+			setup(t, "test_tx_sp_propagate")
+
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
+						"INSERT INTO test_tx_sp_propagate (name) VALUES ($1)", "outer")
+					if err != nil {
+						return err
+					}
+
+					return tx.Savepoint(
+						ctx,
+						func(ctx context.Context, q pg.Querier) error {
+							return errors.New("savepoint failed")
+						},
+					)
+				},
+			)
+			require.Error(t, err)
+
+			err = client.WithConn(
+				ctx,
+				func(ctx context.Context, conn pg.Querier) error {
+					var count int
+					err := conn.QueryRow(ctx,
+						"SELECT count(*) FROM test_tx_sp_propagate").Scan(&count)
+					require.NoError(t, err)
+					assert.Equal(t, 0, count)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
+}
+
+func TestWithTx_QuerierMethods(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+
+	setup := func(t *testing.T, table string) {
+		t.Helper()
+		err := client.WithConn(
+			ctx,
+			func(ctx context.Context, conn pg.Querier) error {
+				_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS "+table)
+				if err != nil {
+					return err
+				}
+				_, err = conn.Exec(ctx,
+					"CREATE TABLE "+table+" (id integer, name text NOT NULL)")
+				return err
+			},
+		)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_ = client.WithConn(
+				context.Background(),
+				func(ctx context.Context, conn pg.Querier) error {
+					_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS "+table)
+					return err
+				},
+			)
+		})
+	}
+
+	t.Run(
+		"Query",
+		func(t *testing.T) {
+			setup(t, "test_tx_query")
+
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
+						"INSERT INTO test_tx_query (id, name) VALUES ($1, $2)", 1, "alice")
+					if err != nil {
+						return err
+					}
+					_, err = tx.Exec(ctx,
+						"INSERT INTO test_tx_query (id, name) VALUES ($1, $2)", 2, "bob")
+					if err != nil {
+						return err
+					}
+
+					rows, err := tx.Query(ctx,
+						"SELECT name FROM test_tx_query ORDER BY id")
+					if err != nil {
+						return err
+					}
+					defer rows.Close()
+
+					var names []string
+					for rows.Next() {
+						var n string
+						if err := rows.Scan(&n); err != nil {
+							return err
+						}
+						names = append(names, n)
+					}
+
+					assert.Equal(t, []string{"alice", "bob"}, names)
+					return rows.Err()
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"SendBatch",
+		func(t *testing.T) {
+			setup(t, "test_tx_batch")
+
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					batch := &pgx.Batch{}
+					batch.Queue(
+						"INSERT INTO test_tx_batch (id, name) VALUES ($1, $2)", 1, "a")
+					batch.Queue(
+						"INSERT INTO test_tx_batch (id, name) VALUES ($1, $2)", 2, "b")
+
+					br := tx.SendBatch(ctx, batch)
+					for i := 0; i < 2; i++ {
+						if _, err := br.Exec(); err != nil {
+							return err
+						}
+					}
+					if err := br.Close(); err != nil {
+						return err
+					}
+
+					var count int
+					err := tx.QueryRow(ctx,
+						"SELECT count(*) FROM test_tx_batch").Scan(&count)
+					require.NoError(t, err)
+					assert.Equal(t, 2, count)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"CopyFrom",
+		func(t *testing.T) {
+			setup(t, "test_tx_copy")
+
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					src := pgx.CopyFromRows([][]any{
+						{1, "alice"},
+						{2, "bob"},
+						{3, "carol"},
+					})
+					n, err := tx.CopyFrom(ctx,
+						pgx.Identifier{"test_tx_copy"},
+						[]string{"id", "name"},
+						src,
+					)
+					if err != nil {
+						return err
+					}
+					assert.Equal(t, int64(3), n)
+
+					var count int
+					err = tx.QueryRow(ctx,
+						"SELECT count(*) FROM test_tx_copy").Scan(&count)
+					require.NoError(t, err)
+					assert.Equal(t, 3, count)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
 }
 
 func TestWithTx_Tracing(t *testing.T) {
@@ -502,7 +793,7 @@ func TestWithTx_Tracing(t *testing.T) {
 		ctx := context.Background()
 		err := client.WithConn(
 			ctx,
-			func(ctx context.Context, conn pg.Conn) error {
+			func(ctx context.Context, conn pg.Querier) error {
 				_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS "+table)
 				if err != nil {
 					return err
@@ -516,7 +807,7 @@ func TestWithTx_Tracing(t *testing.T) {
 		t.Cleanup(func() {
 			_ = client.WithConn(
 				context.Background(),
-				func(ctx context.Context, conn pg.Conn) error {
+				func(ctx context.Context, conn pg.Querier) error {
 					_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS "+table)
 					return err
 				},
@@ -533,8 +824,8 @@ func TestWithTx_Tracing(t *testing.T) {
 			ctx, span := tp.Tracer("test").Start(context.Background(), "test-root")
 			err := client.WithTx(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
 						"INSERT INTO test_tx_trace_ok (name) VALUES ($1)", "traced")
 					return err
 				},
@@ -557,8 +848,8 @@ func TestWithTx_Tracing(t *testing.T) {
 			sentinel := errors.New("traced tx error")
 			err := client.WithTx(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
 						"INSERT INTO test_tx_trace_err (name) VALUES ($1)", "will_rollback")
 					if err != nil {
 						return err
@@ -578,7 +869,7 @@ func TestWithTx_Tracing(t *testing.T) {
 	)
 
 	t.Run(
-		"nested savepoint creates spans",
+		"savepoint creates spans",
 		func(t *testing.T) {
 			setup(t, "test_tx_trace_sp")
 			before := len(sr.Ended())
@@ -586,15 +877,15 @@ func TestWithTx_Tracing(t *testing.T) {
 			ctx, span := tp.Tracer("test").Start(context.Background(), "test-root")
 			err := client.WithTx(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
 						"INSERT INTO test_tx_trace_sp (name) VALUES ($1)", "outer")
 					if err != nil {
 						return err
 					}
-					return client.WithTx(
+					return tx.Savepoint(
 						ctx,
-						func(ctx context.Context, conn pg.Conn) error {
+						func(ctx context.Context, conn pg.Querier) error {
 							_, err := conn.Exec(ctx,
 								"INSERT INTO test_tx_trace_sp (name) VALUES ($1)", "inner")
 							return err
@@ -606,18 +897,13 @@ func TestWithTx_Tracing(t *testing.T) {
 			span.End()
 
 			names := spanNames(sr.Ended()[before:])
-			withTxCount := 0
-			for _, n := range names {
-				if n == "WithTx" {
-					withTxCount++
-				}
-			}
-			assert.GreaterOrEqual(t, withTxCount, 2, "expected outer + inner WithTx spans")
+			assert.Contains(t, names, "WithTx")
+			assert.Contains(t, names, "Savepoint")
 		},
 	)
 
 	t.Run(
-		"nested savepoint rollback records error",
+		"savepoint rollback records error",
 		func(t *testing.T) {
 			setup(t, "test_tx_trace_sp_err")
 			before := len(sr.Ended())
@@ -625,15 +911,15 @@ func TestWithTx_Tracing(t *testing.T) {
 			ctx, span := tp.Tracer("test").Start(context.Background(), "test-root")
 			err := client.WithTx(
 				ctx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
 						"INSERT INTO test_tx_trace_sp_err (name) VALUES ($1)", "outer")
 					if err != nil {
 						return err
 					}
-					_ = client.WithTx(
+					_ = tx.Savepoint(
 						ctx,
-						func(ctx context.Context, conn pg.Conn) error {
+						func(ctx context.Context, conn pg.Querier) error {
 							return errors.New("inner savepoint error")
 						},
 					)
@@ -643,77 +929,13 @@ func TestWithTx_Tracing(t *testing.T) {
 			require.NoError(t, err)
 			span.End()
 
-			newSpans := sr.Ended()[before:]
-			assert.NotEmpty(t, newSpans)
-		},
-	)
-}
-
-// ---------------------------------------------------------------------------
-// WithoutTx
-// ---------------------------------------------------------------------------
-
-func TestWithoutTx(t *testing.T) {
-	client := newTestClient(t)
-	ctx := context.Background()
-
-	err := client.WithConn(
-		ctx,
-		func(ctx context.Context, conn pg.Conn) error {
-			_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS test_without_tx")
-			if err != nil {
-				return err
+			for _, s := range sr.Ended()[before:] {
+				if s.Name() == "Savepoint" {
+					assert.Equal(t, codes.Error, s.Status().Code)
+				}
 			}
-			_, err = conn.Exec(ctx,
-				"CREATE TABLE test_without_tx (id serial PRIMARY KEY, name text NOT NULL)")
-			return err
 		},
 	)
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		_ = client.WithConn(
-			context.Background(),
-			func(ctx context.Context, conn pg.Conn) error {
-				_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS test_without_tx")
-				return err
-			},
-		)
-	})
-
-	err = client.WithTx(
-		ctx,
-		func(txCtx context.Context, conn pg.Conn) error {
-			_, err := conn.Exec(txCtx,
-				"INSERT INTO test_without_tx (name) VALUES ($1)", "in_parent_tx")
-			if err != nil {
-				return err
-			}
-
-			freshCtx := pg.WithoutTx(txCtx)
-			return client.WithTx(
-				freshCtx,
-				func(ctx context.Context, conn pg.Conn) error {
-					_, err := conn.Exec(ctx,
-						"INSERT INTO test_without_tx (name) VALUES ($1)", "independent")
-					return err
-				},
-			)
-		},
-	)
-	require.NoError(t, err)
-
-	err = client.WithConn(
-		ctx,
-		func(ctx context.Context, conn pg.Conn) error {
-			var count int
-			err := conn.QueryRow(ctx, "SELECT count(*) FROM test_without_tx").Scan(&count)
-			require.NoError(t, err)
-			assert.Equal(t, 2, count)
-			return nil
-		},
-	)
-	require.NoError(t, err)
 }
 
 // ---------------------------------------------------------------------------
@@ -728,7 +950,7 @@ func TestWithAdvisoryLock(t *testing.T) {
 		"acquires lock and executes",
 		func(t *testing.T) {
 			var executed bool
-			err := client.WithAdvisoryLock(ctx, 1, func(conn pg.Conn) error {
+			err := client.WithAdvisoryLock(ctx, 1, func(conn pg.Querier) error {
 				executed = true
 
 				var locked bool
@@ -751,7 +973,7 @@ func TestWithAdvisoryLock(t *testing.T) {
 		"propagates callback error",
 		func(t *testing.T) {
 			sentinel := errors.New("lock callback failed")
-			err := client.WithAdvisoryLock(ctx, 2, func(conn pg.Conn) error {
+			err := client.WithAdvisoryLock(ctx, 2, func(conn pg.Querier) error {
 				return sentinel
 			})
 			require.ErrorIs(t, err, sentinel)
@@ -768,7 +990,7 @@ func TestWithAdvisoryLock_Tracing(t *testing.T) {
 			before := len(sr.Ended())
 
 			ctx, span := tp.Tracer("test").Start(context.Background(), "test-root")
-			err := client.WithAdvisoryLock(ctx, 100, func(conn pg.Conn) error {
+			err := client.WithAdvisoryLock(ctx, 100, func(conn pg.Querier) error {
 				return nil
 			})
 			require.NoError(t, err)
@@ -787,7 +1009,7 @@ func TestWithAdvisoryLock_Tracing(t *testing.T) {
 
 			ctx, span := tp.Tracer("test").Start(context.Background(), "test-root")
 			sentinel := errors.New("traced lock error")
-			err := client.WithAdvisoryLock(ctx, 101, func(conn pg.Conn) error {
+			err := client.WithAdvisoryLock(ctx, 101, func(conn pg.Querier) error {
 				return sentinel
 			})
 			require.ErrorIs(t, err, sentinel)
@@ -812,7 +1034,7 @@ func TestSendBatch(t *testing.T) {
 
 	err := client.WithConn(
 		bgCtx,
-		func(ctx context.Context, conn pg.Conn) error {
+		func(ctx context.Context, conn pg.Querier) error {
 			_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS test_batch")
 			if err != nil {
 				return err
@@ -826,7 +1048,7 @@ func TestSendBatch(t *testing.T) {
 	t.Cleanup(func() {
 		_ = client.WithConn(
 			bgCtx,
-			func(ctx context.Context, conn pg.Conn) error {
+			func(ctx context.Context, conn pg.Querier) error {
 				_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS test_batch")
 				return err
 			},
@@ -838,7 +1060,7 @@ func TestSendBatch(t *testing.T) {
 	ctx, span := tp.Tracer("test").Start(bgCtx, "test-root")
 	err = client.WithConn(
 		ctx,
-		func(ctx context.Context, conn pg.Conn) error {
+		func(ctx context.Context, conn pg.Querier) error {
 			batch := &pgx.Batch{}
 			batch.Queue("INSERT INTO test_batch (name) VALUES ($1)", "a")
 			batch.Queue("INSERT INTO test_batch (name) VALUES ($1)", "b")
@@ -860,7 +1082,7 @@ func TestSendBatch(t *testing.T) {
 
 	err = client.WithConn(
 		bgCtx,
-		func(ctx context.Context, conn pg.Conn) error {
+		func(ctx context.Context, conn pg.Querier) error {
 			var count int
 			err := conn.QueryRow(ctx, "SELECT count(*) FROM test_batch").Scan(&count)
 			require.NoError(t, err)
@@ -881,7 +1103,7 @@ func TestCopyFrom(t *testing.T) {
 
 	err := client.WithConn(
 		bgCtx,
-		func(ctx context.Context, conn pg.Conn) error {
+		func(ctx context.Context, conn pg.Querier) error {
 			_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS test_copy")
 			if err != nil {
 				return err
@@ -895,7 +1117,7 @@ func TestCopyFrom(t *testing.T) {
 	t.Cleanup(func() {
 		_ = client.WithConn(
 			bgCtx,
-			func(ctx context.Context, conn pg.Conn) error {
+			func(ctx context.Context, conn pg.Querier) error {
 				_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS test_copy")
 				return err
 			},
@@ -907,7 +1129,7 @@ func TestCopyFrom(t *testing.T) {
 	ctx, span := tp.Tracer("test").Start(bgCtx, "test-root")
 	err = client.WithConn(
 		ctx,
-		func(ctx context.Context, conn pg.Conn) error {
+		func(ctx context.Context, conn pg.Querier) error {
 			rows := pgx.CopyFromRows([][]any{
 				{1, "alice"},
 				{2, "bob"},
@@ -940,7 +1162,7 @@ func TestQueryError_Tracing(t *testing.T) {
 	ctx, span := tp.Tracer("test").Start(context.Background(), "test-root")
 	err := client.WithConn(
 		ctx,
-		func(ctx context.Context, conn pg.Conn) error {
+		func(ctx context.Context, conn pg.Querier) error {
 			_, err := conn.Exec(ctx, "SELECT * FROM table_that_does_not_exist_xyz")
 			return err
 		},
@@ -972,7 +1194,7 @@ func TestRefreshTypes(t *testing.T) {
 
 	err := client.WithConn(
 		ctx,
-		func(ctx context.Context, conn pg.Conn) error {
+		func(ctx context.Context, conn pg.Querier) error {
 			var n int
 			return conn.QueryRow(ctx, "SELECT 42").Scan(&n)
 		},

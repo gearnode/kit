@@ -33,7 +33,7 @@ func newTestPGClient(t *testing.T) *pg.Client {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err = client.WithConn(ctx, func(ctx context.Context, conn pg.Conn) error {
+	err = client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
 		_, err := conn.Exec(ctx, "SELECT 1")
 		return err
 	})
@@ -50,7 +50,7 @@ func newTestPGClient(t *testing.T) *pg.Client {
 func dropTables(t *testing.T, client *pg.Client, tables ...string) {
 	t.Helper()
 	ctx := context.Background()
-	_ = client.WithConn(ctx, func(ctx context.Context, conn pg.Conn) error {
+	_ = client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
 		for _, tbl := range tables {
 			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+tbl+" CASCADE")
 		}
@@ -139,7 +139,7 @@ func TestMigrator_Run(t *testing.T) {
 		m := migrator.NewMigrator(client, disk, logger)
 		require.NoError(t, m.Run(ctx, "migrations"))
 
-		err := client.WithConn(ctx, func(ctx context.Context, conn pg.Conn) error {
+		err := client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
 			var exists bool
 			err := conn.QueryRow(ctx,
 				"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'test_mig_users')").
@@ -171,7 +171,7 @@ func TestMigrator_Run(t *testing.T) {
 		require.NoError(t, m.Run(ctx, "migrations"))
 		require.NoError(t, m.Run(ctx, "migrations"))
 
-		err := client.WithConn(ctx, func(ctx context.Context, conn pg.Conn) error {
+		err := client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
 			var count int
 			err := conn.QueryRow(ctx, "SELECT count(*) FROM schema_versions").Scan(&count)
 			require.NoError(t, err)
@@ -197,7 +197,7 @@ func TestMigrator_Run(t *testing.T) {
 		m := migrator.NewMigrator(client, disk, logger)
 		require.NoError(t, m.Run(ctx, "migrations"))
 
-		err := client.WithConn(ctx, func(ctx context.Context, conn pg.Conn) error {
+		err := client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
 			var count int
 			err := conn.QueryRow(ctx, "SELECT count(*) FROM schema_versions").Scan(&count)
 			require.NoError(t, err)
@@ -254,7 +254,7 @@ func TestMigrator_Run(t *testing.T) {
 		m2 := migrator.NewMigrator(client, disk2, logger)
 		require.NoError(t, m2.Run(ctx, "migrations"))
 
-		err := client.WithConn(ctx, func(ctx context.Context, conn pg.Conn) error {
+		err := client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
 			var count int
 			err := conn.QueryRow(ctx, "SELECT count(*) FROM schema_versions").Scan(&count)
 			require.NoError(t, err)

@@ -71,15 +71,13 @@ func (m *Migrator) Run(ctx context.Context, dirname string) error {
 		return nil
 	}
 
-	independentCtx := pg.WithoutTx(ctx)
-
 	err := m.pg.WithAdvisoryLock(
 		ctx,
 		MigrationAdvisoryLock,
-		func(conn pg.Conn) error {
+		func(conn pg.Querier) error {
 			err := m.pg.WithConn(
-				independentCtx,
-				func(connCtx context.Context, conn pg.Conn) error {
+				ctx,
+				func(connCtx context.Context, conn pg.Querier) error {
 					return createIfNotExistVersionsTable(connCtx, conn)
 				},
 			)
@@ -100,9 +98,9 @@ func (m *Migrator) Run(ctx context.Context, dirname string) error {
 				m.logger.Info("applying migration", log.String("version", migration.Version))
 
 				err := m.pg.WithTx(
-					independentCtx,
-					func(txCtx context.Context, conn pg.Conn) error {
-						return migration.Apply(txCtx, conn)
+					ctx,
+					func(txCtx context.Context, tx pg.Tx) error {
+						return migration.Apply(txCtx, tx)
 					},
 				)
 				if err != nil {
@@ -166,14 +164,14 @@ func (pms *Migrations) LoadFromDir(disk FS, dirname string) error {
 	return nil
 }
 
-func (m *Migration) Apply(ctx context.Context, conn pg.Conn) error {
-	_, err := conn.Exec(ctx, m.SQL)
+func (m *Migration) Apply(ctx context.Context, tx pg.Tx) error {
+	_, err := tx.Exec(ctx, m.SQL)
 	if err != nil {
 		return fmt.Errorf("cannot execute migration: %w", err)
 	}
 
 	q := "INSERT INTO schema_versions (version) VALUES ($1)"
-	_, err = conn.Exec(ctx, q, m.Version)
+	_, err = tx.Exec(ctx, q, m.Version)
 	if err != nil {
 		return fmt.Errorf("cannot insert schema version: %w", err)
 	}
@@ -197,7 +195,7 @@ func (m *Migration) LoadFromFile(disk fs.ReadFileFS, filename string) error {
 	return nil
 }
 
-func createIfNotExistVersionsTable(ctx context.Context, conn pg.Conn) error {
+func createIfNotExistVersionsTable(ctx context.Context, conn pg.Querier) error {
 	q := `
 CREATE TABLE IF NOT EXISTS schema_versions (
   version VARCHAR PRIMARY KEY,
@@ -209,7 +207,7 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 	return err
 }
 
-func loadSchemaVersions(ctx context.Context, conn pg.Conn) (map[string]struct{}, error) {
+func loadSchemaVersions(ctx context.Context, conn pg.Querier) (map[string]struct{}, error) {
 	q := "SELECT version FROM schema_versions"
 	r, err := conn.Query(ctx, q)
 	if err != nil {
