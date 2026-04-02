@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **worker**: Generic task polling worker with concurrent processing, observability, and graceful shutdown.
+
 ## [0.3.0] - 2026-04-02
 
 The transaction API has been redesigned to make savepoints explicit
