@@ -39,11 +39,12 @@ type (
 	}
 
 	// Tx represents an active database transaction. It extends
-	// Querier with the ability to create savepoints.
+	// Querier with the ability to create savepoints. The callback
+	// receives a Tx so savepoints can be nested arbitrarily.
 	Tx interface {
 		Querier
 
-		Savepoint(context.Context, ExecFunc[Querier]) error
+		Savepoint(context.Context, ExecFunc[Tx]) error
 	}
 
 	pgxTx struct {
@@ -75,7 +76,9 @@ func (t *pgxTx) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
 // Savepoint executes fn within a savepoint. If fn returns an error,
 // the savepoint is rolled back; otherwise, it is released. The outer
 // transaction remains active regardless of the savepoint outcome.
-func (t *pgxTx) Savepoint(ctx context.Context, fn ExecFunc[Querier]) error {
+//
+// The callback receives a Tx, allowing nested savepoints.
+func (t *pgxTx) Savepoint(ctx context.Context, fn ExecFunc[Tx]) error {
 	var (
 		rootSpan = trace.SpanFromContext(ctx)
 		span     trace.Span
@@ -100,7 +103,9 @@ func (t *pgxTx) Savepoint(ctx context.Context, fn ExecFunc[Querier]) error {
 		return err
 	}
 
-	if err := fn(ctx, sp); err != nil {
+	spTx := &pgxTx{inner: sp, tracer: t.tracer}
+
+	if err := fn(ctx, spTx); err != nil {
 		if err2 := sp.Rollback(ctx); err2 != nil {
 			err = errors.Join(
 				err,

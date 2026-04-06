@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **pg**: `Tx.Savepoint` callback now receives `pg.Tx` instead of `pg.Querier`, enabling nested savepoints.
+
 ### Added
 
 - **worker**: Generic task polling worker with concurrent processing, observability, and graceful shutdown.

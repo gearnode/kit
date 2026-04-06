@@ -328,8 +328,9 @@ func (c *Client) WithConn(
 //	    }
 //
 //	    // Savepoint failure does not roll back the DELETE above.
-//	    if err := tx.Savepoint(ctx, func(ctx context.Context, q pg.Querier) error {
-//	        _, err := q.Exec(ctx, "INSERT INTO audit_log (...) VALUES (...)")
+//	    // The callback receives a Tx, so savepoints can be nested.
+//	    if err := tx.Savepoint(ctx, func(ctx context.Context, inner pg.Tx) error {
+//	        _, err := inner.Exec(ctx, "INSERT INTO audit_log (...) VALUES (...)")
 //	        return err
 //	    }); err != nil {
 //	        log.Warn("audit failed, continuing", "err", err)
