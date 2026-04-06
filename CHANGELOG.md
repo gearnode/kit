@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-06
+
 ### Breaking Changes
 
 - **pg**: `Tx.Savepoint` callback now receives `pg.Tx` instead of `pg.Querier`, enabling nested savepoints.
