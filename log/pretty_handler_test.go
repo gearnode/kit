@@ -181,7 +181,7 @@ func TestPrettyHandlerConcurrency(t *testing.T) {
 	})
 
 	done := make(chan struct{})
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		go func(n int) {
 			defer func() { done <- struct{}{} }()
 			r := slog.NewRecord(time.Now(), slog.LevelInfo, "concurrent", 0)
@@ -190,7 +190,7 @@ func TestPrettyHandlerConcurrency(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		<-done
 	}
 

@@ -87,7 +87,7 @@ func TestWorkerProcessesTasks(t *testing.T) {
 	go func() { done <- w.Run(ctx) }()
 
 	var got []int
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		select {
 		case task := <-processed:
 			got = append(got, task)
@@ -191,7 +191,7 @@ func TestWorkerRespectsMaxConcurrency(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx) }()
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		select {
 		case <-processed:
 		case <-time.After(5 * time.Second):
@@ -226,7 +226,7 @@ func TestWorkerContinuesAfterProcessError(t *testing.T) {
 	go func() { done <- w.Run(ctx) }()
 
 	var got []int
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case task := <-processed:
 			got = append(got, task)
@@ -343,7 +343,7 @@ func TestWithMaxConcurrencyIgnoresInvalidValues(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx) }()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		select {
 		case <-processed:
 		case <-time.After(5 * time.Second):

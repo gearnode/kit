@@ -412,14 +412,14 @@ func TestWithTx(t *testing.T) {
 						return err
 					}
 
-				return tx.Savepoint(
-					ctx,
-					func(ctx context.Context, inner pg.Tx) error {
-						_, err := inner.Exec(ctx,
-							"INSERT INTO test_tx_nested (name) VALUES ($1)", "inner")
-						return err
-					},
-				)
+					return tx.Savepoint(
+						ctx,
+						func(ctx context.Context, inner pg.Tx) error {
+							_, err := inner.Exec(ctx,
+								"INSERT INTO test_tx_nested (name) VALUES ($1)", "inner")
+							return err
+						},
+					)
 				},
 			)
 			require.NoError(t, err)
@@ -452,16 +452,16 @@ func TestWithTx(t *testing.T) {
 						return err
 					}
 
-				_ = tx.Savepoint(
-					ctx,
-					func(ctx context.Context, inner pg.Tx) error {
-						if _, err := inner.Exec(ctx,
-							"INSERT INTO test_tx_savepoint (name) VALUES ($1)", "inner_fail"); err != nil {
-							return err
-						}
-						return errors.New("inner error")
-					},
-				)
+					_ = tx.Savepoint(
+						ctx,
+						func(ctx context.Context, inner pg.Tx) error {
+							if _, err := inner.Exec(ctx,
+								"INSERT INTO test_tx_savepoint (name) VALUES ($1)", "inner_fail"); err != nil {
+								return err
+							}
+							return errors.New("inner error")
+						},
+					)
 
 					return nil
 				},
@@ -502,25 +502,25 @@ func TestWithTx(t *testing.T) {
 			err := client.WithTx(
 				ctx,
 				func(ctx context.Context, tx pg.Tx) error {
-				if err := tx.Savepoint(
-					ctx,
-					func(ctx context.Context, inner pg.Tx) error {
-						_, err := inner.Exec(ctx,
-							"INSERT INTO test_tx_multi_sp (name) VALUES ($1)", "sp1")
+					if err := tx.Savepoint(
+						ctx,
+						func(ctx context.Context, inner pg.Tx) error {
+							_, err := inner.Exec(ctx,
+								"INSERT INTO test_tx_multi_sp (name) VALUES ($1)", "sp1")
+							return err
+						},
+					); err != nil {
 						return err
-					},
-				); err != nil {
-					return err
-				}
+					}
 
-				return tx.Savepoint(
-					ctx,
-					func(ctx context.Context, inner pg.Tx) error {
-						_, err := inner.Exec(ctx,
-							"INSERT INTO test_tx_multi_sp (name) VALUES ($1)", "sp2")
-						return err
-					},
-				)
+					return tx.Savepoint(
+						ctx,
+						func(ctx context.Context, inner pg.Tx) error {
+							_, err := inner.Exec(ctx,
+								"INSERT INTO test_tx_multi_sp (name) VALUES ($1)", "sp2")
+							return err
+						},
+					)
 				},
 			)
 			require.NoError(t, err)
@@ -548,25 +548,25 @@ func TestWithTx(t *testing.T) {
 			err := client.WithTx(
 				ctx,
 				func(ctx context.Context, tx pg.Tx) error {
-				if err := tx.Savepoint(ctx, func(ctx context.Context, inner pg.Tx) error {
-					_, err := inner.Exec(ctx,
-						"INSERT INTO test_tx_sp_mixed (name) VALUES ($1)", "kept")
-					return err
-				}); err != nil {
-					return err
-				}
-
-				_ = tx.Savepoint(
-					ctx,
-					func(ctx context.Context, inner pg.Tx) error {
+					if err := tx.Savepoint(ctx, func(ctx context.Context, inner pg.Tx) error {
 						_, err := inner.Exec(ctx,
-							"INSERT INTO test_tx_sp_mixed (name) VALUES ($1)", "discarded")
-						if err != nil {
-							return err
-						}
-						return errors.New("second savepoint fails")
-					},
-				)
+							"INSERT INTO test_tx_sp_mixed (name) VALUES ($1)", "kept")
+						return err
+					}); err != nil {
+						return err
+					}
+
+					_ = tx.Savepoint(
+						ctx,
+						func(ctx context.Context, inner pg.Tx) error {
+							_, err := inner.Exec(ctx,
+								"INSERT INTO test_tx_sp_mixed (name) VALUES ($1)", "discarded")
+							if err != nil {
+								return err
+							}
+							return errors.New("second savepoint fails")
+						},
+					)
 
 					return nil
 				},
@@ -614,12 +614,12 @@ func TestWithTx(t *testing.T) {
 						return err
 					}
 
-				return tx.Savepoint(
-					ctx,
-					func(ctx context.Context, inner pg.Tx) error {
-						return errors.New("savepoint failed")
-					},
-				)
+					return tx.Savepoint(
+						ctx,
+						func(ctx context.Context, inner pg.Tx) error {
+							return errors.New("savepoint failed")
+						},
+					)
 				},
 			)
 			require.Error(t, err)
@@ -920,7 +920,7 @@ func TestWithTx_QuerierMethods(t *testing.T) {
 						"INSERT INTO test_tx_batch (id, name) VALUES ($1, $2)", 2, "b")
 
 					br := tx.SendBatch(ctx, batch)
-					for i := 0; i < 2; i++ {
+					for range 2 {
 						if _, err := br.Exec(); err != nil {
 							return err
 						}
@@ -1075,14 +1075,14 @@ func TestWithTx_Tracing(t *testing.T) {
 					if err != nil {
 						return err
 					}
-				return tx.Savepoint(
-					ctx,
-					func(ctx context.Context, inner pg.Tx) error {
-						_, err := inner.Exec(ctx,
-							"INSERT INTO test_tx_trace_sp (name) VALUES ($1)", "inner")
-						return err
-					},
-				)
+					return tx.Savepoint(
+						ctx,
+						func(ctx context.Context, inner pg.Tx) error {
+							_, err := inner.Exec(ctx,
+								"INSERT INTO test_tx_trace_sp (name) VALUES ($1)", "inner")
+							return err
+						},
+					)
 				},
 			)
 			require.NoError(t, err)
@@ -1109,12 +1109,12 @@ func TestWithTx_Tracing(t *testing.T) {
 					if err != nil {
 						return err
 					}
-				_ = tx.Savepoint(
-					ctx,
-					func(ctx context.Context, inner pg.Tx) error {
-						return errors.New("inner savepoint error")
-					},
-				)
+					_ = tx.Savepoint(
+						ctx,
+						func(ctx context.Context, inner pg.Tx) error {
+							return errors.New("inner savepoint error")
+						},
+					)
 					return nil
 				},
 			)
@@ -1258,7 +1258,7 @@ func TestSendBatch(t *testing.T) {
 			batch.Queue("INSERT INTO test_batch (name) VALUES ($1)", "b")
 
 			br := conn.SendBatch(ctx, batch)
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				if _, err := br.Exec(); err != nil {
 					return err
 				}
