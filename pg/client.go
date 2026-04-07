@@ -383,6 +383,21 @@ func (c *Client) WithTx(
 	tx := &pgxTx{inner: innerTx, tracer: c.tracer}
 
 	if err := exec(ctx, tx); err != nil {
+		if skipErr, ok := errors.AsType[*NoRollbackError](err); ok {
+			if err2 := innerTx.Commit(ctx); err2 != nil {
+				err = errors.Join(
+					err,
+					fmt.Errorf("cannot commit transaction: %w", err2),
+				)
+			}
+
+			if span != nil {
+				recordError(span, err)
+			}
+
+			return skipErr.Err
+		}
+
 		if err2 := innerTx.Rollback(ctx); err2 != nil {
 			err = errors.Join(
 				err,

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"testing"
@@ -629,6 +630,197 @@ func TestWithTx(t *testing.T) {
 					var count int
 					err := conn.QueryRow(ctx,
 						"SELECT count(*) FROM test_tx_sp_propagate").Scan(&count)
+					require.NoError(t, err)
+					assert.Equal(t, 0, count)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
+}
+
+func TestNoRollback(t *testing.T) {
+	t.Run(
+		"nil returns nil",
+		func(t *testing.T) {
+			assert.Nil(t, pg.NoRollback(nil))
+		},
+	)
+
+	t.Run(
+		"wraps error in NoRollbackError",
+		func(t *testing.T) {
+			sentinel := errors.New("inner")
+			err := pg.NoRollback(sentinel)
+
+			var nrErr *pg.NoRollbackError
+			require.ErrorAs(t, err, &nrErr)
+			assert.Equal(t, sentinel, nrErr.Err)
+		},
+	)
+
+	t.Run(
+		"Error delegates to inner",
+		func(t *testing.T) {
+			err := pg.NoRollback(errors.New("boom"))
+			assert.Equal(t, "boom", err.Error())
+		},
+	)
+
+	t.Run(
+		"Unwrap returns inner",
+		func(t *testing.T) {
+			sentinel := errors.New("inner")
+			err := pg.NoRollback(sentinel)
+			assert.ErrorIs(t, err, sentinel)
+		},
+	)
+
+	t.Run(
+		"detectable through additional wrapping",
+		func(t *testing.T) {
+			sentinel := errors.New("root cause")
+			wrapped := fmt.Errorf("context: %w", pg.NoRollback(sentinel))
+
+			var nrErr *pg.NoRollbackError
+			require.ErrorAs(t, wrapped, &nrErr)
+			assert.ErrorIs(t, wrapped, sentinel)
+		},
+	)
+}
+
+func TestWithTx_NoRollback(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+
+	setup := func(t *testing.T, table string) {
+		t.Helper()
+		err := client.WithConn(
+			ctx,
+			func(ctx context.Context, conn pg.Querier) error {
+				_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS "+table)
+				if err != nil {
+					return err
+				}
+				_, err = conn.Exec(ctx,
+					"CREATE TABLE "+table+" (id serial PRIMARY KEY, name text NOT NULL)")
+				return err
+			},
+		)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			_ = client.WithConn(
+				context.Background(),
+				func(ctx context.Context, conn pg.Querier) error {
+					_, err := conn.Exec(ctx, "DROP TABLE IF EXISTS "+table)
+					return err
+				},
+			)
+		})
+	}
+
+	t.Run(
+		"commits and returns inner error",
+		func(t *testing.T) {
+			setup(t, "test_tx_norollback")
+
+			sentinel := errors.New("soft failure")
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
+						"INSERT INTO test_tx_norollback (name) VALUES ($1)", "committed")
+					if err != nil {
+						return err
+					}
+					return pg.NoRollback(sentinel)
+				},
+			)
+			require.ErrorIs(t, err, sentinel)
+
+			var nrErr *pg.NoRollbackError
+			assert.False(t, errors.As(err, &nrErr),
+				"returned error must not be wrapped in NoRollbackError")
+
+			err = client.WithConn(
+				ctx,
+				func(ctx context.Context, conn pg.Querier) error {
+					var count int
+					err := conn.QueryRow(ctx,
+						"SELECT count(*) FROM test_tx_norollback WHERE name = $1",
+						"committed").Scan(&count)
+					require.NoError(t, err)
+					assert.Equal(t, 1, count)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"works through additional wrapping",
+		func(t *testing.T) {
+			setup(t, "test_tx_norollback_wrap")
+
+			sentinel := errors.New("root cause")
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
+						"INSERT INTO test_tx_norollback_wrap (name) VALUES ($1)", "kept")
+					if err != nil {
+						return err
+					}
+					return fmt.Errorf("extra context: %w", pg.NoRollback(sentinel))
+				},
+			)
+			require.Error(t, err)
+
+			err = client.WithConn(
+				ctx,
+				func(ctx context.Context, conn pg.Querier) error {
+					var count int
+					err := conn.QueryRow(ctx,
+						"SELECT count(*) FROM test_tx_norollback_wrap WHERE name = $1",
+						"kept").Scan(&count)
+					require.NoError(t, err)
+					assert.Equal(t, 1, count)
+					return nil
+				},
+			)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"normal error still rolls back",
+		func(t *testing.T) {
+			setup(t, "test_tx_norollback_control")
+
+			sentinel := errors.New("hard failure")
+			err := client.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx,
+						"INSERT INTO test_tx_norollback_control (name) VALUES ($1)", "gone")
+					if err != nil {
+						return err
+					}
+					return sentinel
+				},
+			)
+			require.ErrorIs(t, err, sentinel)
+
+			err = client.WithConn(
+				ctx,
+				func(ctx context.Context, conn pg.Querier) error {
+					var count int
+					err := conn.QueryRow(ctx,
+						"SELECT count(*) FROM test_tx_norollback_control WHERE name = $1",
+						"gone").Scan(&count)
 					require.NoError(t, err)
 					assert.Equal(t, 0, count)
 					return nil

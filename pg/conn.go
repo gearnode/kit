@@ -26,6 +26,34 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// NoRollbackError wraps an error to signal that WithTx should
+// commit the transaction instead of rolling back, while still
+// propagating the inner error to the caller.
+type NoRollbackError struct {
+	Err error
+}
+
+func (e *NoRollbackError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *NoRollbackError) Unwrap() error {
+	return e.Err
+}
+
+// NoRollback wraps err so that WithTx commits the transaction
+// instead of rolling back. The inner error is still returned to the
+// caller after the commit.
+//
+// A nil err is returned as-is (no wrapping).
+func NoRollback(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	return &NoRollbackError{Err: err}
+}
+
 type (
 	// Querier represents something you can run SQL queries against.
 	Querier interface {
