@@ -40,19 +40,19 @@ var ErrCrossOriginRedirect = errors.New("httpclient: cross-origin redirect block
 // loopback, link-local, multicast, and unspecified are handled by the
 // stdlib helpers in isBlockedAddr.
 var extraBlockedPrefixes = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),          // RFC 1122 "this network"
-	netip.MustParsePrefix("100.64.0.0/10"),      // RFC 6598 CGNAT
-	netip.MustParsePrefix("192.0.0.0/24"),       // RFC 6890 IETF protocol assignments
-	netip.MustParsePrefix("192.0.2.0/24"),       // RFC 5737 TEST-NET-1
-	netip.MustParsePrefix("198.18.0.0/15"),      // RFC 2544 benchmarking
-	netip.MustParsePrefix("198.51.100.0/24"),    // RFC 5737 TEST-NET-2
-	netip.MustParsePrefix("203.0.113.0/24"),     // RFC 5737 TEST-NET-3
-	netip.MustParsePrefix("240.0.0.0/4"),        // RFC 1112 reserved (incl. 255.255.255.255)
-	netip.MustParsePrefix("64:ff9b::/96"),       // RFC 6052 IPv4/IPv6 translation
-	netip.MustParsePrefix("64:ff9b:1::/48"),     // RFC 8215 IPv4/IPv6 local translation
-	netip.MustParsePrefix("100::/64"),           // RFC 6666 discard prefix
-	netip.MustParsePrefix("2001::/23"),          // IETF protocol assignments
-	netip.MustParsePrefix("2001:db8::/32"),      // RFC 3849 documentation
+	netip.MustParsePrefix("0.0.0.0/8"),       // RFC 1122 "this network"
+	netip.MustParsePrefix("100.64.0.0/10"),   // RFC 6598 CGNAT
+	netip.MustParsePrefix("192.0.0.0/24"),    // RFC 6890 IETF protocol assignments
+	netip.MustParsePrefix("192.0.2.0/24"),    // RFC 5737 TEST-NET-1
+	netip.MustParsePrefix("198.18.0.0/15"),   // RFC 2544 benchmarking
+	netip.MustParsePrefix("198.51.100.0/24"), // RFC 5737 TEST-NET-2
+	netip.MustParsePrefix("203.0.113.0/24"),  // RFC 5737 TEST-NET-3
+	netip.MustParsePrefix("240.0.0.0/4"),     // RFC 1112 reserved (incl. 255.255.255.255)
+	netip.MustParsePrefix("64:ff9b::/96"),    // RFC 6052 IPv4/IPv6 translation
+	netip.MustParsePrefix("64:ff9b:1::/48"),  // RFC 8215 IPv4/IPv6 local translation
+	netip.MustParsePrefix("100::/64"),        // RFC 6666 discard prefix
+	netip.MustParsePrefix("2001::/23"),       // IETF protocol assignments
+	netip.MustParsePrefix("2001:db8::/32"),   // RFC 3849 documentation
 }
 
 // makeSSRFDialControl returns a net.Dialer.Control function that

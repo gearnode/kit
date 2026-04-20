@@ -45,8 +45,8 @@ type (
 		logger         *log.Logger
 		registerer     prometheus.Registerer
 
-		ssrfProtection      bool
-		ssrfAllowLoopback   bool
+		ssrfProtection    bool
+		ssrfAllowLoopback bool
 	}
 )
 
