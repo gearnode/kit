@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-20
+
+### Added
+
+- **httpclient**: SSRF protection via a custom dialer that rejects connections to private, loopback, link-local, and other non-public IP ranges.
+
 ## [0.5.0] - 2026-04-07
 
 ### Added

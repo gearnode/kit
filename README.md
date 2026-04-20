@@ -20,7 +20,7 @@ Kit provides foundational packages for building production-grade Go services wit
 | `migrator` | Database schema migrations with advisory locking |
 | `httpserver` | HTTP server with request tracing and metrics |
 | `httpclient` | HTTP client with telemetry and connection management |
-| `worker` | Task workers with polling, concurrency limits, and periodic scheduling |
+| `worker` | Task workers with polling and concurrency limits |
 
 ## Requirements
 
