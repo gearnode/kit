@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/multitracer"
@@ -54,7 +55,10 @@ type (
 
 		debug bool
 
-		poolSize int32
+		poolSize        int32
+		minPoolSize     int32
+		maxConnIdleTime time.Duration
+		maxConnLifetime time.Duration
 
 		tlsConfig *tls.Config
 
@@ -135,9 +139,50 @@ func WithTLS(certs []*x509.Certificate) Option {
 	}
 }
 
+// WithPoolSize sets the maximum number of connections the pool will
+// open. It maps to pgxpool.Config.MaxConns.
 func WithPoolSize(i int32) Option {
 	return func(c *Client) {
 		c.poolSize = i
+	}
+}
+
+// WithMinPoolSize sets the minimum number of connections the pool
+// keeps warm. It maps to pgxpool.Config.MinConns. Keeping a non-zero
+// floor avoids paying the TCP + TLS + PostgreSQL startup handshake
+// cost on the first acquire after an idle period, which otherwise
+// shows up as tail latency on pgxpool_acquire_duration_seconds.
+//
+// When unset, the client defaults to 1 (historical behaviour).
+func WithMinPoolSize(i int32) Option {
+	return func(c *Client) {
+		c.minPoolSize = i
+	}
+}
+
+// WithMaxConnIdleTime sets how long a connection can be idle before
+// it is eligible to be destroyed. It maps to
+// pgxpool.Config.MaxConnIdleTime. A zero value leaves the pgx default
+// (30 minutes) in place.
+//
+// Increasing this value reduces connection churn for bursty
+// workloads, at the cost of holding idle connections longer.
+func WithMaxConnIdleTime(d time.Duration) Option {
+	return func(c *Client) {
+		c.maxConnIdleTime = d
+	}
+}
+
+// WithMaxConnLifetime sets the maximum lifetime of a connection
+// before it is recycled. It maps to pgxpool.Config.MaxConnLifetime.
+// A zero value leaves the pgx default (1 hour) in place.
+//
+// Increasing this value reduces connection churn for long-lived
+// processes, at the cost of keeping the same backend connection
+// open for longer.
+func WithMaxConnLifetime(d time.Duration) Option {
+	return func(c *Client) {
+		c.maxConnLifetime = d
 	}
 }
 
@@ -182,6 +227,7 @@ func NewClient(options ...Option) (*Client, error) {
 		user:           "postgres",
 		database:       "postgres",
 		poolSize:       10,
+		minPoolSize:    1,
 		logger:         log.NewLogger(log.WithOutput(io.Discard)),
 		tracerProvider: otel.GetTracerProvider(),
 		registerer:     prometheus.DefaultRegisterer,
@@ -208,8 +254,14 @@ func NewClient(options ...Option) (*Client, error) {
 	config.ConnConfig.Password = c.password
 	config.ConnConfig.Database = c.database
 	config.ConnConfig.TLSConfig = c.tlsConfig
-	config.MinConns = 1
-	config.MaxConns = int32(c.poolSize)
+	config.MinConns = c.minPoolSize
+	config.MaxConns = c.poolSize
+	if c.maxConnIdleTime > 0 {
+		config.MaxConnIdleTime = c.maxConnIdleTime
+	}
+	if c.maxConnLifetime > 0 {
+		config.MaxConnLifetime = c.maxConnLifetime
+	}
 
 	c.tracer = c.tracerProvider.Tracer(
 		tracerName,

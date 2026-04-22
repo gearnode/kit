@@ -191,6 +191,37 @@ func TestNewClient(t *testing.T) {
 			_ = newTestClient(t, pg.WithPoolSize(2))
 		},
 	)
+
+	t.Run(
+		"with min pool size option",
+		func(t *testing.T) {
+			_ = newTestClient(
+				t,
+				pg.WithPoolSize(5),
+				pg.WithMinPoolSize(2),
+			)
+		},
+	)
+
+	t.Run(
+		"with max conn idle time option",
+		func(t *testing.T) {
+			_ = newTestClient(
+				t,
+				pg.WithMaxConnIdleTime(5*time.Minute),
+			)
+		},
+	)
+
+	t.Run(
+		"with max conn lifetime option",
+		func(t *testing.T) {
+			_ = newTestClient(
+				t,
+				pg.WithMaxConnLifetime(15*time.Minute),
+			)
+		},
+	)
 }
 
 // ---------------------------------------------------------------------------
