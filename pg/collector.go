@@ -25,18 +25,19 @@ type (
 	collector struct {
 		pool *pgxpool.Pool
 
-		acquireTotal            *prometheus.Desc
-		acquireDurationSeconds  *prometheus.Desc
-		acquiredConnections     *prometheus.Desc
-		canceledAcquireTotal    *prometheus.Desc
-		constructingConnections *prometheus.Desc
-		emptyAcquireTotal       *prometheus.Desc
-		idleConnections         *prometheus.Desc
-		maxConnections          *prometheus.Desc
-		totalConnections        *prometheus.Desc
-		newConnectionsTotal     *prometheus.Desc
-		maxLifetimeDestroyTotal *prometheus.Desc
-		maxIdleDestroyTotal     *prometheus.Desc
+		acquireTotal                *prometheus.Desc
+		acquireDurationSeconds      *prometheus.Desc
+		acquiredConnections         *prometheus.Desc
+		canceledAcquireTotal        *prometheus.Desc
+		constructingConnections     *prometheus.Desc
+		emptyAcquireTotal           *prometheus.Desc
+		emptyAcquireWaitTimeSeconds *prometheus.Desc
+		idleConnections             *prometheus.Desc
+		maxConnections              *prometheus.Desc
+		totalConnections            *prometheus.Desc
+		newConnectionsTotal         *prometheus.Desc
+		maxLifetimeDestroyTotal     *prometheus.Desc
+		maxIdleDestroyTotal         *prometheus.Desc
 	}
 
 	statWrapper struct {
@@ -81,6 +82,12 @@ func newCollector(pool *pgxpool.Pool, labels map[string]string) *collector {
 		emptyAcquireTotal: prometheus.NewDesc(
 			"pgxpool_empty_acquire_total",
 			"Cumulative count of successful acquires from the pool that waited for a resource to be released or constructed because the pool was empty.",
+			nil,
+			labels,
+		),
+		emptyAcquireWaitTimeSeconds: prometheus.NewDesc(
+			"pgxpool_empty_acquire_wait_time_seconds",
+			"Cumulative time in seconds waited for successful acquires from the pool that had to wait for a resource to be released or constructed because the pool was empty. Dividing by pgxpool_empty_acquire_total yields the mean slow-path acquire latency, which isolates connection construction and contention from the fast-path (idle conn handover).",
 			nil,
 			labels,
 		),
@@ -161,6 +168,11 @@ func (c *collector) Collect(metrics chan<- prometheus.Metric) {
 		stats.emptyAcquireCount(),
 	)
 	metrics <- prometheus.MustNewConstMetric(
+		c.emptyAcquireWaitTimeSeconds,
+		prometheus.CounterValue,
+		stats.emptyAcquireWaitTime(),
+	)
+	metrics <- prometheus.MustNewConstMetric(
 		c.idleConnections,
 		prometheus.GaugeValue,
 		stats.idleConns(),
@@ -209,6 +221,9 @@ func (w *statWrapper) constructingConns() float64 {
 }
 func (w *statWrapper) emptyAcquireCount() float64 {
 	return float64(w.stats.EmptyAcquireCount())
+}
+func (w *statWrapper) emptyAcquireWaitTime() float64 {
+	return w.stats.EmptyAcquireWaitTime().Seconds()
 }
 func (w *statWrapper) idleConns() float64 {
 	return float64(w.stats.IdleConns())

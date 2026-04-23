@@ -222,6 +222,46 @@ func TestNewClient(t *testing.T) {
 			)
 		},
 	)
+
+	t.Run(
+		"exposes expected pgxpool metrics",
+		func(t *testing.T) {
+			reg := prometheus.NewRegistry()
+			_, err := pg.NewClient(
+				pg.WithAddr("localhost:5432"),
+				pg.WithRegisterer(reg),
+			)
+			require.NoError(t, err)
+
+			families, err := reg.Gather()
+			require.NoError(t, err)
+
+			got := make(map[string]struct{}, len(families))
+			for _, fam := range families {
+				got[fam.GetName()] = struct{}{}
+			}
+
+			expected := []string{
+				"pgxpool_acquire_total",
+				"pgxpool_acquire_duration_seconds",
+				"pgxpool_acquired_connections",
+				"pgxpool_canceled_acquire_total",
+				"pgxpool_constructing_connections",
+				"pgxpool_empty_acquire_total",
+				"pgxpool_empty_acquire_wait_time_seconds",
+				"pgxpool_idle_connections",
+				"pgxpool_max_connections",
+				"pgxpool_total_connections",
+				"pgxpool_new_connections_total",
+				"pgxpool_max_lifetime_destroy_total",
+				"pgxpool_max_idle_destroy_total",
+			}
+			for _, name := range expected {
+				_, ok := got[name]
+				assert.Truef(t, ok, "metric %q not exported", name)
+			}
+		},
+	)
 }
 
 // ---------------------------------------------------------------------------
