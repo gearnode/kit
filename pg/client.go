@@ -139,6 +139,18 @@ func WithTLS(certs []*x509.Certificate) Option {
 	}
 }
 
+// WithUnsecureTLS enables TLS without verifying the server's
+// certificate chain or hostname. Intended for development against
+// self-signed databases; do not use in production.
+func WithUnsecureTLS() Option {
+	return func(c *Client) {
+		c.tlsConfig = &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS12,
+		}
+	}
+}
+
 // WithPoolSize sets the maximum number of connections the pool will
 // open. It maps to pgxpool.Config.MaxConns.
 func WithPoolSize(i int32) Option {
