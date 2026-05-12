@@ -7,13 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-12
+
+### Added
+
+- **pg**: `WithApplicationName` option to set the PostgreSQL `application_name` runtime parameter, surfacing the client in `pg_stat_activity`, `pg_stat_statements`, server logs, and `pg_locks` for easier incident attribution.
+
 ## [0.9.0] - 2026-05-12
 
 ### Added
 
 - **pg**: `WithMaxConnLifetimeJitter` option to smear connection recycle events and avoid synchronized reconnect storms. Defaults to 5 minutes; pass `0` to disable.
 - **pg**: `WithHealthCheckPeriod` option to tune how often the pool checks idle connections and enforces MinConns/MaxConnIdleTime/MaxConnLifetime. A zero value leaves the pgx default (1 minute) in place.
-- **pg**: `WithApplicationName` option to set the PostgreSQL `application_name` runtime parameter, surfacing the client in `pg_stat_activity`, `pg_stat_statements`, server logs, and `pg_locks` for easier incident attribution.
 
 ### Changed
 
