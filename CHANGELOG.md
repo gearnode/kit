@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **pg**: `WithMaxConnLifetimeJitter` option to smear connection recycle events and avoid synchronized reconnect storms. Defaults to 5 minutes; pass `0` to disable.
 - **pg**: `WithHealthCheckPeriod` option to tune how often the pool checks idle connections and enforces MinConns/MaxConnIdleTime/MaxConnLifetime. A zero value leaves the pgx default (1 minute) in place.
+- **pg**: `WithApplicationName` option to set the PostgreSQL `application_name` runtime parameter, surfacing the client in `pg_stat_activity`, `pg_stat_statements`, server logs, and `pg_locks` for easier incident attribution.
+
+### Changed
+
+- **pg**: TLS configurations produced by `WithTLS` and `WithUnsecureTLS` now enable a client session cache, allowing reconnects to resume previous TLS sessions and skip the full handshake. Reduces tail latency on `pgxpool_acquire_duration_seconds` for WAN-reached databases.
 
 ## [0.8.0] - 2026-05-08
 

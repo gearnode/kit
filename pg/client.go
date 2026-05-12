@@ -48,10 +48,11 @@ type (
 	// Client provides a PostgreSQL client with a connection pool,
 	// logging, tracing, and Prometheus metrics registration.
 	Client struct {
-		addr     string
-		user     string
-		password string
-		database string
+		addr            string
+		user            string
+		password        string
+		database        string
+		applicationName string
 
 		debug bool
 
@@ -116,8 +117,32 @@ func WithDatabase(database string) Option {
 	}
 }
 
+// WithApplicationName sets the PostgreSQL application_name runtime
+// parameter on every connection in the pool. This value is exposed by
+// the server in pg_stat_activity, pg_stat_statements, log lines, and
+// pg_locks, making it the primary handle for identifying the source
+// of a query during incident response.
+//
+// PostgreSQL truncates application_name to NAMEDATALEN-1 (63 bytes by
+// default) silently, so prefer short, stable identifiers such as the
+// service name. An empty string leaves the runtime parameter unset
+// (which falls back to whatever the libpq env, e.g. PGAPPNAME, or the
+// server defaults choose).
+func WithApplicationName(name string) Option {
+	return func(c *Client) {
+		c.applicationName = name
+	}
+}
+
 // WithTLS configures TLS using the provided certificates for secure
 // connections.
+//
+// The returned config enables a TLS client session cache so that
+// reconnects (after MaxConnLifetime recycles, failovers, or pool
+// refills) can resume a previous session and skip the full handshake.
+// This noticeably reduces tail latency on pgxpool_acquire_duration_seconds
+// for deployments where the database is reached over WAN or any link
+// where the round-trip cost dominates connection construction.
 func WithTLS(certs []*x509.Certificate) Option {
 	return func(c *Client) {
 		rootCAs := x509.NewCertPool()
@@ -137,6 +162,7 @@ func WithTLS(certs []*x509.Certificate) Option {
 			InsecureSkipVerify: false,
 			ServerName:         host,
 			MinVersion:         tls.VersionTLS12,
+			ClientSessionCache: tls.NewLRUClientSessionCache(0),
 		}
 	}
 }
@@ -149,6 +175,7 @@ func WithUnsecureTLS() Option {
 		c.tlsConfig = &tls.Config{
 			InsecureSkipVerify: true,
 			MinVersion:         tls.VersionTLS12,
+			ClientSessionCache: tls.NewLRUClientSessionCache(0),
 		}
 	}
 }
@@ -302,6 +329,12 @@ func NewClient(options ...Option) (*Client, error) {
 	config.ConnConfig.Password = c.password
 	config.ConnConfig.Database = c.database
 	config.ConnConfig.TLSConfig = c.tlsConfig
+	if c.applicationName != "" {
+		if config.ConnConfig.RuntimeParams == nil {
+			config.ConnConfig.RuntimeParams = map[string]string{}
+		}
+		config.ConnConfig.RuntimeParams["application_name"] = c.applicationName
+	}
 	config.MinConns = c.minPoolSize
 	config.MaxConns = c.poolSize
 	if c.maxConnIdleTime > 0 {
