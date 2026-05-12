@@ -55,10 +55,12 @@ type (
 
 		debug bool
 
-		poolSize        int32
-		minPoolSize     int32
-		maxConnIdleTime time.Duration
-		maxConnLifetime time.Duration
+		poolSize              int32
+		minPoolSize           int32
+		maxConnIdleTime       time.Duration
+		maxConnLifetime       time.Duration
+		maxConnLifetimeJitter time.Duration
+		healthCheckPeriod     time.Duration
 
 		tlsConfig *tls.Config
 
@@ -198,6 +200,39 @@ func WithMaxConnLifetime(d time.Duration) Option {
 	}
 }
 
+// WithMaxConnLifetimeJitter sets the duration of randomness added to
+// each connection's MaxConnLifetime, smearing recycle events across
+// time. It maps to pgxpool.Config.MaxConnLifetimeJitter.
+//
+// Without jitter, connections opened around the same time (for
+// example after a deploy) tend to be recycled together, producing
+// synchronized reconnect storms that show up as latency spikes on
+// pgxpool_acquire_duration_seconds. A non-zero jitter spreads those
+// recycles out.
+//
+// When unset, the client defaults to 5 minutes. Pass a zero value
+// explicitly via this option to disable jitter.
+func WithMaxConnLifetimeJitter(d time.Duration) Option {
+	return func(c *Client) {
+		c.maxConnLifetimeJitter = d
+	}
+}
+
+// WithHealthCheckPeriod sets how often the pool checks the health of
+// its idle connections and enforces MinConns/MaxConnIdleTime/
+// MaxConnLifetime. It maps to pgxpool.Config.HealthCheckPeriod. A
+// zero value leaves the pgx default (1 minute) in place.
+//
+// Lowering the period makes the pool react faster to dropped
+// connections (for example after a failover) and refill below
+// MinConns more promptly, at the cost of slightly more background
+// work.
+func WithHealthCheckPeriod(d time.Duration) Option {
+	return func(c *Client) {
+		c.healthCheckPeriod = d
+	}
+}
+
 // WithTracerProvider configures OpenTelemetry tracing with the
 // provided tracer provider.
 func WithTracerProvider(tp trace.TracerProvider) Option {
@@ -235,14 +270,15 @@ func WithDebug() Option {
 //	}
 func NewClient(options ...Option) (*Client, error) {
 	c := &Client{
-		addr:           "localhost:5432",
-		user:           "postgres",
-		database:       "postgres",
-		poolSize:       10,
-		minPoolSize:    1,
-		logger:         log.NewLogger(log.WithOutput(io.Discard)),
-		tracerProvider: otel.GetTracerProvider(),
-		registerer:     prometheus.DefaultRegisterer,
+		addr:                  "localhost:5432",
+		user:                  "postgres",
+		database:              "postgres",
+		poolSize:              10,
+		minPoolSize:           1,
+		maxConnLifetimeJitter: 5 * time.Minute,
+		logger:                log.NewLogger(log.WithOutput(io.Discard)),
+		tracerProvider:        otel.GetTracerProvider(),
+		registerer:            prometheus.DefaultRegisterer,
 	}
 
 	for _, o := range options {
@@ -273,6 +309,12 @@ func NewClient(options ...Option) (*Client, error) {
 	}
 	if c.maxConnLifetime > 0 {
 		config.MaxConnLifetime = c.maxConnLifetime
+	}
+	if c.maxConnLifetimeJitter > 0 {
+		config.MaxConnLifetimeJitter = c.maxConnLifetimeJitter
+	}
+	if c.healthCheckPeriod > 0 {
+		config.HealthCheckPeriod = c.healthCheckPeriod
 	}
 
 	c.tracer = c.tracerProvider.Tracer(

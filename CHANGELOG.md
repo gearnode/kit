@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **pg**: `WithMaxConnLifetimeJitter` option to smear connection recycle events and avoid synchronized reconnect storms. Defaults to 5 minutes; pass `0` to disable.
+- **pg**: `WithHealthCheckPeriod` option to tune how often the pool checks idle connections and enforces MinConns/MaxConnIdleTime/MaxConnLifetime. A zero value leaves the pgx default (1 minute) in place.
+
 ## [0.7.0] - 2026-04-22
 
 ### Added

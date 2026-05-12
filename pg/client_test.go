@@ -224,6 +224,26 @@ func TestNewClient(t *testing.T) {
 	)
 
 	t.Run(
+		"with max conn lifetime jitter option",
+		func(t *testing.T) {
+			_ = newTestClient(
+				t,
+				pg.WithMaxConnLifetimeJitter(2*time.Minute),
+			)
+		},
+	)
+
+	t.Run(
+		"with health check period option",
+		func(t *testing.T) {
+			_ = newTestClient(
+				t,
+				pg.WithHealthCheckPeriod(30*time.Second),
+			)
+		},
+	)
+
+	t.Run(
 		"exposes expected pgxpool metrics",
 		func(t *testing.T) {
 			reg := prometheus.NewRegistry()
