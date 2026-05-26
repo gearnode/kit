@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-25
+
+### Added
+
+- **worker**: `PeriodicWorker` runs a handler on a fixed interval, skipping ticks when the previous run is still in progress. Instrumented with Prometheus counters and histograms (`periodic_worker_cycles_total`, `periodic_worker_runs_total`, `periodic_worker_run_duration_seconds`, `periodic_worker_skipped_total`) and OpenTelemetry traces.
+- **pg**: `WithStatementCacheCapacity` option to tune the number of server-side prepared statements pgx caches per connection. Pass `0` when running behind a transaction-mode connection pooler such as pgbouncer.
+- **pg**: `WithDescriptionCacheCapacity` option to tune the statement-description cache used by `QueryExecModeCacheDescribe`.
+- **pg**: `WithDefaultQueryExecMode` option to override pgx's default query execution mode. Use together with `WithStatementCacheCapacity(0)` and `WithDescriptionCacheCapacity(0)` for transaction-pooling proxies.
+- **httpserver**: Default 30 s read and write timeouts on all servers created by `NewServer`. Override with the new `WithReadTimeout` and `WithWriteTimeout` options; pass `0` to disable.
+
 ## [0.10.0] - 2026-05-12
 
 ### Added
