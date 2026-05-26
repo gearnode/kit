@@ -40,6 +40,8 @@ type (
 		tracerProvider trace.TracerProvider
 		logger         *log.Logger
 		registerer     prometheus.Registerer
+		readTimeout    time.Duration
+		writeTimeout   time.Duration
 	}
 )
 
@@ -66,11 +68,27 @@ func WithRegisterer(r prometheus.Registerer) Option {
 	}
 }
 
+// WithReadTimeout overrides the default 30 s read timeout. Pass 0 to disable.
+func WithReadTimeout(d time.Duration) Option {
+	return func(o *Options) {
+		o.readTimeout = d
+	}
+}
+
+// WithWriteTimeout overrides the default 30 s write timeout. Pass 0 to disable.
+func WithWriteTimeout(d time.Duration) Option {
+	return func(o *Options) {
+		o.writeTimeout = d
+	}
+}
+
 func NewServer(addr string, h http.Handler, options ...Option) *http.Server {
 	opts := &Options{
 		logger:         log.NewLogger(log.WithOutput(io.Discard)),
 		tracerProvider: otel.GetTracerProvider(),
 		registerer:     prometheus.DefaultRegisterer,
+		readTimeout:    30 * time.Second,
+		writeTimeout:   30 * time.Second,
 	}
 
 	for _, o := range options {
@@ -99,6 +117,8 @@ func NewServer(addr string, h http.Handler, options ...Option) *http.Server {
 		Handler:           handler,
 		ErrorLog:          stdlog.New(logger.NewWriter(log.LevelError), "", 0),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       opts.readTimeout,
+		WriteTimeout:      opts.writeTimeout,
 		IdleTimeout:       15 * time.Second,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			ctx, span := tracer.Start(ctx, "http.connection",
