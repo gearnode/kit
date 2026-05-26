@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **httpclient**: Retry round tripper with exponential backoff and jitter for transient failures (5xx, 429, and connection errors). Enabled via `WithMaxRetries`, `WithRetryMinWait`, and `WithRetryMaxWait` options.
 - **pg**: `WithMaxConnLifetimeJitter` option to smear connection recycle events and avoid synchronized reconnect storms. Defaults to 5 minutes; pass `0` to disable.
 - **pg**: `WithHealthCheckPeriod` option to tune how often the pool checks idle connections and enforces MinConns/MaxConnIdleTime/MaxConnLifetime. A zero value leaves the pgx default (1 minute) in place.
 

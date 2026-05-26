@@ -63,6 +63,13 @@ type (
 		maxConnLifetimeJitter time.Duration
 		healthCheckPeriod     time.Duration
 
+		statementCacheCapacity      int
+		statementCacheCapacitySet   bool
+		descriptionCacheCapacity    int
+		descriptionCacheCapacitySet bool
+		defaultQueryExecMode        pgx.QueryExecMode
+		defaultQueryExecModeSet     bool
+
 		tlsConfig *tls.Config
 
 		pool *pgxpool.Pool
@@ -260,6 +267,93 @@ func WithHealthCheckPeriod(d time.Duration) Option {
 	}
 }
 
+// WithStatementCacheCapacity sets the maximum number of prepared
+// statements pgx will keep cached per connection when the default
+// query exec mode is QueryExecModeCacheStatement (pgx's own default).
+// It maps to pgx.ConnConfig.StatementCacheCapacity.
+//
+// Cache hits avoid the PREPARE round-trip; misses pay one extra
+// round-trip and either insert into the cache (if there is room) or
+// evict an LRU entry. The pgx default is 512 statements per
+// connection. Multiply by MaxConns to estimate the upper bound on
+// server-side prepared statement count and on per-pool memory.
+//
+// Workloads that generate many distinct SQL strings (for example
+// GraphQL resolvers that emit different SELECT lists or dynamic
+// WHERE chains per request) can exceed 512 and start thrashing the
+// cache, which manifests as recurring PREPARE round-trips on the hot
+// path. Raise this when the working set of statements is larger than
+// the default; lower it when memory pressure on the database matters
+// more than per-query latency.
+//
+// Pass 0 to disable the cache entirely. This is required when sitting
+// behind a connection pooler in transaction-pooling mode (for example
+// pgbouncer) which may switch the underlying server connection
+// between round-trips and invalidate any cached prepared statement.
+// Negative values are ignored and the pgx default is left in place.
+func WithStatementCacheCapacity(n int) Option {
+	return func(c *Client) {
+		if n < 0 {
+			return
+		}
+		c.statementCacheCapacity = n
+		c.statementCacheCapacitySet = true
+	}
+}
+
+// WithDescriptionCacheCapacity sets the maximum number of statement
+// descriptions (parameter and result types) pgx will keep cached per
+// connection when the default query exec mode is
+// QueryExecModeCacheDescribe. It maps to
+// pgx.ConnConfig.DescriptionCacheCapacity.
+//
+// The description cache is the lighter-weight cousin of the statement
+// cache: it stores only type information, not server-side prepared
+// statements. The pgx default is 512.
+//
+// Pass 0 to disable. Negative values are ignored and the pgx default
+// is left in place.
+func WithDescriptionCacheCapacity(n int) Option {
+	return func(c *Client) {
+		if n < 0 {
+			return
+		}
+		c.descriptionCacheCapacity = n
+		c.descriptionCacheCapacitySet = true
+	}
+}
+
+// WithDefaultQueryExecMode overrides pgx's default query execution
+// mode for the pool. It maps to pgx.ConnConfig.DefaultQueryExecMode.
+//
+// pgx defaults to QueryExecModeCacheStatement, which auto-prepares
+// and caches statements server-side. The other modes trade off
+// round-trips, protocol features, and pooler compatibility:
+//
+//   - QueryExecModeCacheStatement: default; one round-trip per query
+//     after the first, server-side prepared statements.
+//   - QueryExecModeCacheDescribe: caches type descriptions only, no
+//     server-side prepared statements; safe across schema changes.
+//   - QueryExecModeDescribeExec: two round-trips per query, no
+//     caching; safest against schema changes.
+//   - QueryExecModeExec: extended protocol with text-format
+//     parameters, no prepared statement, single round-trip; required
+//     when sitting behind pgbouncer in transaction-pooling mode and
+//     also setting WithStatementCacheCapacity(0).
+//   - QueryExecModeSimpleProtocol: simple protocol with client-side
+//     parameter interpolation; broadest pooler/proxy compatibility,
+//     loses some pgx type machinery (notably []byte handling).
+//
+// Use this option together with WithStatementCacheCapacity(0) and
+// WithDescriptionCacheCapacity(0) when running through a transaction
+// pooler.
+func WithDefaultQueryExecMode(mode pgx.QueryExecMode) Option {
+	return func(c *Client) {
+		c.defaultQueryExecMode = mode
+		c.defaultQueryExecModeSet = true
+	}
+}
+
 // WithTracerProvider configures OpenTelemetry tracing with the
 // provided tracer provider.
 func WithTracerProvider(tp trace.TracerProvider) Option {
@@ -334,6 +428,15 @@ func NewClient(options ...Option) (*Client, error) {
 			config.ConnConfig.RuntimeParams = map[string]string{}
 		}
 		config.ConnConfig.RuntimeParams["application_name"] = c.applicationName
+	}
+	if c.statementCacheCapacitySet {
+		config.ConnConfig.StatementCacheCapacity = c.statementCacheCapacity
+	}
+	if c.descriptionCacheCapacitySet {
+		config.ConnConfig.DescriptionCacheCapacity = c.descriptionCacheCapacity
+	}
+	if c.defaultQueryExecModeSet {
+		config.ConnConfig.DefaultQueryExecMode = c.defaultQueryExecMode
 	}
 	config.MinConns = c.minPoolSize
 	config.MaxConns = c.poolSize
