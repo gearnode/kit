@@ -228,7 +228,7 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 
 	wg.Wait()
 
-	return context.Cause(ctx)
+	return context.Canceled
 }
 
 func (u *Unit) runMetricsServer(ctx context.Context, initialized chan<- prometheus.Registerer) error {
