@@ -19,6 +19,8 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -282,11 +284,7 @@ func (w *Worker[T]) Run(ctx context.Context) error {
 
 			nonCancelableCtx := context.WithoutCancel(ctx)
 			if sr, ok := w.handler.(StaleRecoverer); ok {
-				recoverStart := time.Now()
-				if err := sr.RecoverStale(nonCancelableCtx); err != nil {
-					w.logger.ErrorCtx(nonCancelableCtx, "cannot recover stale tasks", log.Error(err))
-				}
-				w.recoverStaleDuration.WithLabelValues(w.name).Observe(time.Since(recoverStart).Seconds())
+				w.recoverStaleTasks(nonCancelableCtx, sr)
 			}
 
 			for {
@@ -303,6 +301,8 @@ func (w *Worker[T]) Run(ctx context.Context) error {
 }
 
 func (w *Worker[T]) processNext(ctx context.Context, sem chan struct{}, wg *sync.WaitGroup) error {
+	var err error
+
 	select {
 	case sem <- struct{}{}:
 	case <-ctx.Done():
@@ -310,6 +310,13 @@ func (w *Worker[T]) processNext(ctx context.Context, sem chan struct{}, wg *sync
 	}
 
 	nonCancelableCtx := context.WithoutCancel(ctx)
+
+	defer func() {
+		if rvr := recover(); rvr != nil {
+			w.logPanic(nonCancelableCtx, "task claim panicked", rvr)
+			err = fmt.Errorf("worker: claim panicked: %v", rvr)
+		}
+	}()
 
 	claimStart := time.Now()
 	task, err := w.handler.Claim(nonCancelableCtx)
@@ -334,6 +341,13 @@ func (w *Worker[T]) processNext(ctx context.Context, sem chan struct{}, wg *sync
 			defer span.End()
 
 			start := time.Now()
+			defer func() {
+				if rvr := recover(); rvr != nil {
+					duration := time.Since(start)
+					w.recordProcessPanic(processCtx, span, rvr, duration)
+				}
+			}()
+
 			err := w.handler.Process(processCtx, task)
 			duration := time.Since(start)
 
@@ -362,4 +376,49 @@ func (w *Worker[T]) processNext(ctx context.Context, sem chan struct{}, wg *sync
 	)
 
 	return nil
+}
+
+func (w *Worker[T]) recoverStaleTasks(ctx context.Context, sr StaleRecoverer) {
+	recoverStart := time.Now()
+	defer func() {
+		if rvr := recover(); rvr != nil {
+			w.logPanic(ctx, "stale task recovery panicked", rvr)
+		}
+
+		w.recoverStaleDuration.WithLabelValues(w.name).Observe(time.Since(recoverStart).Seconds())
+	}()
+
+	if err := sr.RecoverStale(ctx); err != nil {
+		w.logger.ErrorCtx(ctx, "cannot recover stale tasks", log.Error(err))
+	}
+}
+
+func (w *Worker[T]) logPanic(ctx context.Context, msg string, rvr any) {
+	stack := make([]byte, 4096)
+	length := runtime.Stack(stack, false)
+
+	w.logger.ErrorCtx(
+		ctx,
+		msg,
+		log.Any("panic", rvr),
+		log.String("stacktrace", string(stack[:length])),
+	)
+}
+
+func (w *Worker[T]) recordProcessPanic(
+	ctx context.Context,
+	span trace.Span,
+	rvr any,
+	duration time.Duration,
+) {
+	if err, ok := rvr.(error); ok {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	} else {
+		span.SetStatus(codes.Error, fmt.Sprintf("%v", rvr))
+	}
+
+	w.logPanic(ctx, "task processing panicked", rvr)
+	w.tasksTotal.WithLabelValues(w.name, "failed").Inc()
+	w.taskDuration.WithLabelValues(w.name, "failed").Observe(duration.Seconds())
 }

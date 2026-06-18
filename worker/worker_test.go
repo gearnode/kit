@@ -62,10 +62,14 @@ func (h *testHandler) Process(ctx context.Context, task int) error {
 type recoverableHandler struct {
 	testHandler
 	recoverCalls atomic.Int64
+	recoverFn    func(ctx context.Context) error
 }
 
 func (h *recoverableHandler) RecoverStale(ctx context.Context) error {
 	h.recoverCalls.Add(1)
+	if h.recoverFn != nil {
+		return h.recoverFn(ctx)
+	}
 	return nil
 }
 
@@ -241,6 +245,81 @@ func TestWorkerContinuesAfterProcessError(t *testing.T) {
 	<-done
 }
 
+func TestWorkerContinuesAfterClaimPanic(t *testing.T) {
+	var claimCalls atomic.Int64
+	processed := make(chan int, 10)
+
+	h := &testHandler{
+		claimFn: func(ctx context.Context) (int, error) {
+			n := claimCalls.Add(1)
+			switch {
+			case n == 1:
+				panic("database driver bug")
+			case n == 2:
+				return 42, nil
+			default:
+				return 0, worker.ErrNoTask
+			}
+		},
+		processFn: func(ctx context.Context, task int) error {
+			processed <- task
+			return nil
+		},
+	}
+
+	w := worker.New[int]("test", h, testLogger(), testWorkerOpts()...)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+
+	select {
+	case task := <-processed:
+		assert.Equal(t, 42, task)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for task processing after claim panic")
+	}
+
+	cancel()
+	<-done
+}
+
+func TestWorkerContinuesAfterProcessPanic(t *testing.T) {
+	processed := make(chan int, 10)
+
+	h := &testHandler{
+		tasks: []int{1, 2, 3},
+		processFn: func(ctx context.Context, task int) error {
+			if task == 1 {
+				panic("unexpected nil pointer")
+			}
+			processed <- task
+			return nil
+		},
+	}
+
+	w := worker.New[int]("test", h, testLogger(), testWorkerOpts()...)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+
+	var got []int
+	for range 2 {
+		select {
+		case task := <-processed:
+			got = append(got, task)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for task processing after process panic")
+		}
+	}
+
+	assert.ElementsMatch(t, []int{2, 3}, got)
+
+	cancel()
+	<-done
+}
+
 func TestWorkerContinuesAfterClaimError(t *testing.T) {
 	var claimCalls atomic.Int64
 	processed := make(chan int, 10)
@@ -274,6 +353,46 @@ func TestWorkerContinuesAfterClaimError(t *testing.T) {
 		assert.Equal(t, 42, task)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for task processing")
+	}
+
+	cancel()
+	<-done
+}
+
+func TestWorkerContinuesAfterRecoverStalePanic(t *testing.T) {
+	processed := make(chan int, 10)
+
+	h := &recoverableHandler{
+		testHandler: testHandler{
+			tasks: []int{1},
+			processFn: func(ctx context.Context, task int) error {
+				processed <- task
+				return nil
+			},
+		},
+	}
+	h.recoverFn = func(ctx context.Context) error {
+		if h.recoverCalls.Load() == 1 {
+			panic("stale recovery bug")
+		}
+		return nil
+	}
+
+	w := worker.New[int]("test", h, testLogger(), testWorkerOpts()...)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+
+	require.Eventually(t, func() bool {
+		return h.recoverCalls.Load() >= 2
+	}, 2*time.Second, 5*time.Millisecond)
+
+	select {
+	case task := <-processed:
+		assert.Equal(t, 1, task)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for task processing after recover stale panic")
 	}
 
 	cancel()
