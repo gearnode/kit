@@ -161,7 +161,7 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	)
 	logger := u.logger.Named("unit")
 
-	ctx, cancel := context.WithCancelCause(parentCtx)
+	runCtx, cancel := context.WithCancelCause(parentCtx)
 	defer cancel(context.Canceled)
 
 	wg := sync.WaitGroup{}
@@ -199,34 +199,38 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 
 	select {
 	case registry = <-metricsInitialized:
-	case <-ctx.Done():
-		return context.Cause(ctx)
+	case <-runCtx.Done():
+		return context.Cause(runCtx)
 	}
 
 	select {
 	case traceProvider = <-tracingInitialized:
-	case <-ctx.Done():
-		return context.Cause(ctx)
+	case <-runCtx.Done():
+		return context.Cause(runCtx)
 	}
 
 	wg.Go(
 		func() {
 
-			if err := u.main.Run(ctx, u.logger, registry, traceProvider); err != nil {
+			if err := u.main.Run(runCtx, u.logger, registry, traceProvider); err != nil {
 				cancel(err)
 			}
 		},
 	)
 
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	signalCtx, stop := signal.NotifyContext(runCtx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	<-ctx.Done()
+	<-signalCtx.Done()
 
 	stopMetricsServer()
 	stopTracingExporter()
 
 	wg.Wait()
+
+	if cause := context.Cause(runCtx); cause != nil {
+		return cause
+	}
 
 	return context.Canceled
 }
