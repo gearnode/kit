@@ -299,6 +299,44 @@ func TestCtxConvenienceMethods(t *testing.T) {
 	}
 }
 
+func TestErrorCtxDowngradesOnCanceledContext(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewLogger(WithOutput(&buf))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	l.ErrorCtx(ctx, "client went away")
+
+	m := parseJSONLog(t, &buf)
+	assert.Equal(t, "WARN", m["level"])
+	assert.Equal(t, "client went away", m["msg"])
+}
+
+func TestErrorCtxKeepsErrorOnDeadlineExceeded(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewLogger(WithOutput(&buf))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	<-ctx.Done()
+
+	l.ErrorCtx(ctx, "slow downstream call")
+
+	m := parseJSONLog(t, &buf)
+	assert.Equal(t, "ERROR", m["level"])
+}
+
+func TestErrorCtxKeepsErrorOnLiveContext(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewLogger(WithOutput(&buf))
+
+	l.ErrorCtx(context.Background(), "real failure")
+
+	m := parseJSONLog(t, &buf)
+	assert.Equal(t, "ERROR", m["level"])
+}
+
 func TestConvenienceMethodsWithAttrs(t *testing.T) {
 	var buf bytes.Buffer
 	l := NewLogger(WithOutput(&buf))

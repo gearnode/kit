@@ -18,6 +18,7 @@ package log
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -256,8 +257,15 @@ func (l *Logger) Named(name string, options ...Option) *Logger {
 }
 
 // Log logs a message at the specified level with optional attributes,
-// adding trace and span IDs if the context has a span.
+// adding trace and span IDs if the context has a span. An Error
+// logged against a context canceled by its caller (e.g. a client
+// disconnect) is downgraded to Warn, since it reflects the caller
+// going away rather than a failure on our end.
 func (l *Logger) Log(ctx context.Context, level Level, msg string, args ...Attr) {
+	if level == LevelError && errors.Is(context.Cause(ctx), context.Canceled) {
+		level = LevelWarn
+	}
+
 	if l.match != nil && l.match(level, msg, args) {
 		return
 	}
