@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Harden PostgreSQL pool cleanup, metrics registration, TLS validation, and migration locking.
 - Prevent HTTP SSRF proxy bypasses and redact sensitive telemetry and error responses.
+- Remove connection-level HTTP spans that incorrectly parent unrelated keep-alive requests.
 - Propagate shutdown cancellation, bound shutdown and HTTP waits, and recover worker panics.
 - Use secure telemetry defaults and redact secrets from printed configuration.
 

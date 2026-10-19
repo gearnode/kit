@@ -112,6 +112,17 @@ func TestHTTPServer_BasicOperation(t *testing.T) {
 	}
 }
 
+func TestHTTPServer_DoesNotCreateConnectionSpans(t *testing.T) {
+	server := NewServer(
+		":8080",
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		WithRegisterer(prometheus.NewRegistry()),
+	)
+
+	assert.Nil(t, server.ConnContext)
+	assert.Nil(t, server.ConnState)
+}
+
 // mockPanicHandler is a handler that always panics
 type mockPanicHandler struct{}
 
