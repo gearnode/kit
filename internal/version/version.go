@@ -15,26 +15,32 @@
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 package version
 
-import "fmt"
+import "runtime/debug"
 
-type (
-	V struct {
-		v uint
+const modulePath = "go.gearno.de/kit"
+
+func Current() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "devel"
 	}
-)
-
-func New(v uint) *V {
-	return &V{v}
+	if info.Main.Path == modulePath {
+		return normalizedVersion(info.Main)
+	}
+	for _, dep := range info.Deps {
+		if dep.Path == modulePath {
+			if dep.Replace != nil {
+				return normalizedVersion(*dep.Replace)
+			}
+			return normalizedVersion(*dep)
+		}
+	}
+	return "devel"
 }
 
-func (v V) Alpha(r uint) string {
-	return fmt.Sprintf("%d.alpha-%d", v.v, r)
-}
-
-func (v V) Beta(r uint) string {
-	return fmt.Sprintf("%d.beta-%d", v.v, r)
-}
-
-func (v V) Stable(r uint) string {
-	return fmt.Sprintf("%d.stable-%d", v.v, r)
+func normalizedVersion(module debug.Module) string {
+	if module.Version == "" || module.Version == "(devel)" {
+		return "devel"
+	}
+	return module.Version
 }

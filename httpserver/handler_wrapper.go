@@ -20,7 +20,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strconv"
 	"time"
@@ -77,7 +79,6 @@ func newHandlerWrapper(
 ) *handlerWrapper {
 	metricLabels := []string{
 		"method",
-		"host",
 		"flavor",
 		"status_code",
 		"path",
@@ -156,7 +157,7 @@ func newHandlerWrapper(
 		tracer: tp.Tracer(
 			tracerName,
 			trace.WithInstrumentationVersion(
-				version.New(0).Alpha(1),
+				version.Current(),
 			),
 		),
 		requestsTotal:   requestsTotal,
@@ -205,6 +206,8 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.NewV7()
 		if err != nil {
 			logger.ErrorCtx(ctx, "cannot generate request id", log.Error(err))
+			RenderJSON(ww, http.StatusInternalServerError, internalErrorResponse)
+			return
 		}
 
 		requestID = id.String()
@@ -213,59 +216,59 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ww.Header().Set("x-request-id", requestID)
 	logger = logger.With(log.String("http_request_id", requestID))
 
-	var (
-		rootSpan = trace.SpanFromContext(ctx)
-		span     trace.Span
+	propagator := otel.GetTextMapPropagator()
+	ctx = propagator.Extract(ctx, propagation.HeaderCarrier(r2.Header))
+	peerAddress, peerPort := splitAddress(r2.RemoteAddr)
+	spanName := fmt.Sprintf("%s server", r2.Method)
+	ctx, span := hw.tracer.Start(
+		ctx,
+		spanName,
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			semconv.NetworkPeerAddress(peerAddress),
+			semconv.NetworkPeerPort(peerPort),
+			semconv.URLScheme(r2.URL.Scheme),
+			attribute.String("http.method", r.Method),
+			attribute.String("http.url", sanitizedURL(r2.URL)),
+			attribute.String("http.target", r2.URL.Path),
+			attribute.String("http.host", r2.Host),
+			attribute.String("http.flavor", r2.Proto),
+			attribute.String("http.client_ip", r2.RemoteAddr),
+			attribute.String("http.user_agent", r2.UserAgent()),
+			attribute.String("http.request_id", requestID),
+		),
 	)
-
-	if rootSpan.IsRecording() {
-		propagator := otel.GetTextMapPropagator()
-		ctx = propagator.Extract(ctx, propagation.HeaderCarrier(r2.Header))
-
-		spanName := fmt.Sprintf("%s %s %s", r2.Method, r2.URL.Host, r2.URL.Path)
-		ctx, span = hw.tracer.Start(
-			ctx,
-			spanName,
-			trace.WithSpanKind(trace.SpanKindServer),
-			trace.WithAttributes(
-				semconv.NetworkPeerAddress(r2.URL.Host),
-				semconv.NetworkPeerPort(atoi(r2.URL.Port())),
-				semconv.URLScheme(r2.URL.Scheme),
-				attribute.String("http.method", r.Method),
-				attribute.String("http.url", r2.URL.String()),
-				attribute.String("http.target", r2.URL.Path),
-				attribute.String("http.host", r2.Host),
-				attribute.String("http.flavor", r2.Proto),
-				attribute.String("http.client_ip", r2.RemoteAddr),
-				attribute.String("http.user_agent", r2.UserAgent()),
-				attribute.String("http.request_id", requestID),
-			),
-		)
-		defer span.End()
-	}
+	defer span.End()
 
 	// Hack to get route pattern from Chi. As today using the STD
 	// router will require to much works to have proper sub router
 	// support, a task for later.
-	ctx = context.WithValue(ctx, chi.RouteCtxKey, chi.NewRouteContext())
+	if chi.RouteContext(ctx) == nil {
+		ctx = context.WithValue(ctx, chi.RouteCtxKey, chi.NewRouteContext())
+	}
 
 	ctx = context.WithValue(ctx, loggerRequestContextKey, logger)
 
 	defer func() {
 		duration := time.Since(start)
 		hasPanic := false
+		pathPattern := chi.RouteContext(ctx).RoutePattern()
+		if pathPattern == "" {
+			pathPattern = "unknown"
+		}
+		span.SetName(fmt.Sprintf("%s %s", r2.Method, pathPattern))
 		rvr := recover()
 		if rvr != nil {
 			hasPanic = true
 
 			if err, ok := rvr.(error); ok {
-				if rootSpan.IsRecording() {
+				if span.IsRecording() {
 					span.RecordError(err)
 					span.SetStatus(codes.Error, err.Error())
 				}
 
 			} else {
-				if rootSpan.IsRecording() {
+				if span.IsRecording() {
 					span.SetStatus(codes.Error, fmt.Sprintf("%v", rvr))
 				}
 			}
@@ -286,10 +289,9 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		metricLabels := prometheus.Labels{
 			"method":      r2.Method,
-			"host":        r2.Host,
 			"flavor":      r2.Proto,
 			"status_code": strconv.Itoa(ww.Status()),
-			"path":        chi.RouteContext(ctx).RoutePattern(),
+			"path":        pathPattern,
 		}
 
 		hw.requestsTotal.With(metricLabels).Inc()
@@ -320,10 +322,10 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger = logger.With(
 			log.Int("http_response_size", ww.BytesWritten()),
 			log.Int("http_response_status", ww.Status()),
-			log.String("http_request_path_pattern", chi.RouteContext(ctx).RoutePattern()),
+			log.String("http_request_path_pattern", pathPattern),
 		)
 
-		if ww.Status() > 499 && !hasPanic && rootSpan.IsRecording() {
+		if ww.Status() > 499 && !hasPanic && span.IsRecording() {
 			span.SetStatus(codes.Error, fmt.Sprintf("%d status code", ww.Status()))
 		}
 
@@ -344,6 +346,24 @@ func atoi(s string) int {
 	}
 
 	return v
+}
+
+func splitAddress(address string) (string, int) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return address, 0
+	}
+	return host, atoi(port)
+}
+
+func sanitizedURL(u *url.URL) string {
+	safe := *u
+	safe.User = nil
+	safe.RawQuery = ""
+	safe.ForceQuery = false
+	safe.Fragment = ""
+	safe.RawFragment = ""
+	return safe.String()
 }
 
 func estimateRequestSize(r *http.Request) float64 {

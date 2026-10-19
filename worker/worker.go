@@ -249,7 +249,7 @@ func New[T any](name string, handler Handler[T], logger *log.Logger, opts ...Opt
 		tracer: o.tracerProvider.Tracer(
 			tracerName,
 			trace.WithInstrumentationVersion(
-				version.New(0).Alpha(1),
+				version.Current(),
 			),
 		),
 		interval:             o.interval,
@@ -282,16 +282,18 @@ func (w *Worker[T]) Run(ctx context.Context) error {
 		case <-ticker.C:
 			w.pollCyclesTotal.WithLabelValues(w.name).Inc()
 
-			nonCancelableCtx := context.WithoutCancel(ctx)
 			if sr, ok := w.handler.(StaleRecoverer); ok {
-				w.recoverStaleTasks(nonCancelableCtx, sr)
+				w.recoverStaleTasks(ctx, sr)
 			}
 
 			for {
+				if ctx.Err() != nil {
+					return context.Cause(ctx)
+				}
 				if err := w.processNext(ctx, sem, &wg); err != nil {
 					if !errors.Is(err, ErrNoTask) {
 						w.claimErrorsTotal.WithLabelValues(w.name).Inc()
-						w.logger.ErrorCtx(nonCancelableCtx, "cannot claim task", log.Error(err))
+						w.logger.ErrorCtx(context.WithoutCancel(ctx), "cannot claim task", log.Error(err))
 					}
 					break
 				}
@@ -319,7 +321,7 @@ func (w *Worker[T]) processNext(ctx context.Context, sem chan struct{}, wg *sync
 	}()
 
 	claimStart := time.Now()
-	task, err := w.handler.Claim(nonCancelableCtx)
+	task, err := w.handler.Claim(ctx)
 	w.claimDuration.WithLabelValues(w.name).Observe(time.Since(claimStart).Seconds())
 	if err != nil {
 		<-sem

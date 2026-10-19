@@ -108,7 +108,7 @@ func (h *PrettyHandler) Handle(_ context.Context, r slog.Record) error {
 		fmt.Fprint(bf, " ")
 		for i, g := range h.groups {
 			fmt.Fprint(bf, color.New(color.FgWhite).Sprint(g))
-			if i != len(h.groups) {
+			if i != len(h.groups)-1 {
 				fmt.Fprint(bf, color.New(color.FgWhite).Sprint("."))
 			}
 		}

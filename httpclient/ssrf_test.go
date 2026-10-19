@@ -116,6 +116,11 @@ func TestSSRFDialControl_RejectsLoopback(t *testing.T) {
 	assert.ErrorIs(t, err, ErrBlockedAddress)
 }
 
+func TestSSRFProtectionDisablesEnvironmentProxy(t *testing.T) {
+	transport := createBaseTransport(configureOptions([]Option{WithSSRFProtection()}))
+	assert.Nil(t, transport.Proxy)
+}
+
 func TestSSRFDialControl_AllowsPublicByDefault(t *testing.T) {
 	t.Parallel()
 

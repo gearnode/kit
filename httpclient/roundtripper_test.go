@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -58,6 +59,14 @@ func TestNewTelemetryRoundTripper(t *testing.T) {
 		NoopRegisterer{},
 	)
 	assert.NotNil(t, tr)
+}
+
+func TestDefaultClientUsesBoundedTimeouts(t *testing.T) {
+	client := DefaultClient(WithRegisterer(NoopRegisterer{}))
+	assert.Equal(t, 30*time.Second, client.Timeout)
+	telemetry := client.Transport.(*TelemetryRoundTripper)
+	transport := telemetry.next.(*http.Transport)
+	assert.Equal(t, 15*time.Second, transport.ResponseHeaderTimeout)
 }
 
 func TestRoundTrip(t *testing.T) {
@@ -100,4 +109,10 @@ func TestRoundTrip(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, response.StatusCode)
 	mockRT.AssertExpectations(t)
+}
+
+func TestSanitizedURL(t *testing.T) {
+	u, err := url.Parse("https://user:secret@example.com/path?token=secret#fragment")
+	assert.NoError(t, err)
+	assert.Equal(t, "https://example.com/path", sanitizedURL(u))
 }

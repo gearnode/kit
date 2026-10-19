@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -125,7 +126,7 @@ func NewTelemetryRoundTripper(
 		tracer: tp.Tracer(
 			tracerName,
 			trace.WithInstrumentationVersion(
-				version.New(0).Alpha(1),
+				version.Current(),
 			),
 		),
 		requestsTotal:          requestsTotal,
@@ -144,6 +145,7 @@ func (rt *TelemetryRoundTripper) RoundTrip(r *http.Request) (*http.Response, err
 		ctx       = r2.Context()
 		start     = time.Now()
 		requestID = r2.Header.Get("x-request-id")
+		safeURL   = sanitizedURL(r2.URL)
 	)
 
 	if requestID == "" {
@@ -156,53 +158,47 @@ func (rt *TelemetryRoundTripper) RoundTrip(r *http.Request) (*http.Response, err
 	}
 	r2.Header.Set("x-request-id", requestID)
 
-	var (
-		rootSpan = trace.SpanFromContext(ctx)
-		span     trace.Span
-		logger   = rt.logger.With(
-			log.String("http_request_method", r2.Method),
-			log.String("http_request_scheme", r2.URL.Scheme),
-			log.String("http_request_host", r2.URL.Host),
-			log.String("http_request_path", r2.URL.Path),
-			log.String("http_request_flavor", r2.Proto),
-			log.String("http_request_user_agent", r2.UserAgent()),
-			log.String("http_request_client_ip", r2.RemoteAddr),
-			log.String("http_request_id", requestID),
-		)
+	logger := rt.logger.With(
+		log.String("http_request_method", r2.Method),
+		log.String("http_request_scheme", r2.URL.Scheme),
+		log.String("http_request_host", r2.URL.Host),
+		log.String("http_request_path", r2.URL.Path),
+		log.String("http_request_flavor", r2.Proto),
+		log.String("http_request_user_agent", r2.UserAgent()),
+		log.String("http_request_client_ip", r2.RemoteAddr),
+		log.String("http_request_id", requestID),
 	)
 
-	if rootSpan.IsRecording() {
-		spanName := fmt.Sprintf("%s %s %s", r2.Method, r2.URL.Host, r2.URL.Path)
-		ctx, span = rt.tracer.Start(
-			ctx,
-			spanName,
-			trace.WithSpanKind(trace.SpanKindClient),
-			trace.WithAttributes(
-				semconv.NetworkPeerAddress(r2.URL.Host),
-				semconv.NetworkPeerPort(atoi(r2.URL.Port())),
-				semconv.URLScheme(r2.URL.Scheme),
-				attribute.String("http.method", r.Method),
-				attribute.String("http.url", r2.URL.String()),
-				attribute.String("http.target", r2.URL.Path),
-				attribute.String("http.host", r2.URL.Host),
-				attribute.String("http.scheme", r2.URL.Scheme),
-				attribute.String("http.flavor", r2.Proto),
-				attribute.String("http.client_ip", r2.RemoteAddr),
-				attribute.String("http.user_agent", r2.UserAgent()),
-				attribute.String("http.request_id", requestID),
-			),
-		)
-		defer span.End()
+	spanName := fmt.Sprintf("%s %s", r2.Method, r2.URL.Hostname())
+	ctx, span := rt.tracer.Start(
+		ctx,
+		spanName,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			semconv.NetworkPeerAddress(r2.URL.Hostname()),
+			semconv.NetworkPeerPort(atoi(r2.URL.Port())),
+			semconv.URLScheme(r2.URL.Scheme),
+			attribute.String("http.method", r.Method),
+			attribute.String("http.url", safeURL),
+			attribute.String("http.target", r2.URL.Path),
+			attribute.String("http.host", r2.URL.Host),
+			attribute.String("http.scheme", r2.URL.Scheme),
+			attribute.String("http.flavor", r2.Proto),
+			attribute.String("http.client_ip", r2.RemoteAddr),
+			attribute.String("http.user_agent", r2.UserAgent()),
+			attribute.String("http.request_id", requestID),
+		),
+	)
+	defer span.End()
 
-		propagator := otel.GetTextMapPropagator()
-		propagator.Inject(ctx, propagation.HeaderCarrier(r2.Header))
-	}
+	propagator := otel.GetTextMapPropagator()
+	propagator.Inject(ctx, propagation.HeaderCarrier(r2.Header))
 
 	resp, err := rt.next.RoundTrip(r2)
 	if err != nil {
 		rt.logger.ErrorCtx(ctx, "cannot execute http transaction", log.Error(err))
 
-		if rootSpan.IsRecording() {
+		if span.IsRecording() {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 		}
@@ -210,11 +206,14 @@ func (rt *TelemetryRoundTripper) RoundTrip(r *http.Request) (*http.Response, err
 		return nil, err
 	}
 
-	if rootSpan.IsRecording() {
+	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.Int("http.status_code", resp.StatusCode),
 			attribute.String("http.status_text", resp.Status),
 		)
+		if resp.StatusCode >= http.StatusInternalServerError {
+			span.SetStatus(codes.Error, resp.Status)
+		}
 	}
 
 	duration := time.Since(start)
@@ -231,7 +230,7 @@ func (rt *TelemetryRoundTripper) RoundTrip(r *http.Request) (*http.Response, err
 	rt.requestDurationSeconds.With(metricLabels).Observe(duration.Seconds())
 
 	logLevel := log.LevelInfo
-	logMessage := fmt.Sprintf("%s %s %d %s", r2.Method, r.URL.String(), resp.StatusCode, duration)
+	logMessage := fmt.Sprintf("%s %s %d %s", r2.Method, safeURL, resp.StatusCode, duration)
 	if resp.StatusCode >= http.StatusInternalServerError {
 		logLevel = log.LevelError
 	}
@@ -239,6 +238,16 @@ func (rt *TelemetryRoundTripper) RoundTrip(r *http.Request) (*http.Response, err
 	logger.Log(ctx, logLevel, logMessage, log.Int("http_response_status_code", resp.StatusCode))
 
 	return resp, nil
+}
+
+func sanitizedURL(u *url.URL) string {
+	safe := *u
+	safe.User = nil
+	safe.RawQuery = ""
+	safe.ForceQuery = false
+	safe.Fragment = ""
+	safe.RawFragment = ""
+	return safe.String()
 }
 
 func atoi(s string) int {

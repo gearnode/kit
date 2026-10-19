@@ -54,7 +54,9 @@ type (
 		database        string
 		applicationName string
 
-		debug bool
+		debug          bool
+		traceQueryText bool
+		requireTLS     bool
 
 		poolSize              int32
 		minPoolSize           int32
@@ -376,6 +378,22 @@ func WithDebug() Option {
 	}
 }
 
+// WithTraceQueryText records complete SQL statements on database
+// spans. It is disabled by default because statements can contain
+// credentials or personal data.
+func WithTraceQueryText() Option {
+	return func(c *Client) {
+		c.traceQueryText = true
+	}
+}
+
+// WithRequireTLS rejects client configuration without verified TLS.
+func WithRequireTLS() Option {
+	return func(c *Client) {
+		c.requireTLS = true
+	}
+}
+
 // NewClient creates a new database client with customizable options
 // for logging, tracing, TLS, and Prometheus metrics.
 //
@@ -416,7 +434,24 @@ func NewClient(options ...Option) (*Client, error) {
 		return nil, fmt.Errorf("invalid port: %w", err)
 	}
 
-	config, _ := pgxpool.ParseConfig("")
+	if c.tlsConfig != nil && !c.tlsConfig.InsecureSkipVerify {
+		c.tlsConfig = c.tlsConfig.Clone()
+		c.tlsConfig.ServerName = host
+	}
+	if c.poolSize < 1 {
+		return nil, fmt.Errorf("pool size must be greater than zero: %d", c.poolSize)
+	}
+	if c.minPoolSize < 0 || c.minPoolSize > c.poolSize {
+		return nil, fmt.Errorf("minimum pool size must be between zero and pool size: %d", c.minPoolSize)
+	}
+	if c.requireTLS && (c.tlsConfig == nil || c.tlsConfig.InsecureSkipVerify) {
+		return nil, errors.New("verified TLS is required")
+	}
+
+	config, err := pgxpool.ParseConfig("")
+	if err != nil {
+		return nil, fmt.Errorf("cannot create default connection pool config: %w", err)
+	}
 	config.ConnConfig.Host = host
 	config.ConnConfig.Port = uint16(port)
 	config.ConnConfig.User = c.user
@@ -456,12 +491,12 @@ func NewClient(options ...Option) (*Client, error) {
 	c.tracer = c.tracerProvider.Tracer(
 		tracerName,
 		trace.WithInstrumentationVersion(
-			version.New(0).Alpha(1),
+			version.Current(),
 		),
 	)
 
 	tracers := []pgx.QueryTracer{
-		&tracer{c.tracer},
+		&tracer{tracer: c.tracer, recordQueryText: c.traceQueryText},
 	}
 
 	if c.debug {
@@ -481,16 +516,18 @@ func NewClient(options ...Option) (*Client, error) {
 		return nil, fmt.Errorf("cannot create connection pool from config: %w", err)
 	}
 
-	c.registerer.MustRegister(
-		newCollector(
-			pool,
-			map[string]string{
-				"database": c.database,
-				"user":     c.user,
-				"addr":     c.addr,
-			},
-		),
+	collector := newCollector(
+		pool,
+		map[string]string{
+			"database": c.database,
+			"user":     c.user,
+			"addr":     c.addr,
+		},
 	)
+	if err := c.registerer.Register(collector); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("cannot register connection pool metrics: %w", err)
+	}
 
 	c.pool = pool
 
@@ -671,6 +708,25 @@ func (c *Client) WithAdvisoryLock(
 	id AdvisoryLock,
 	f func(Querier) error,
 ) error {
+	return c.withAdvisoryLockTx(ctx, id, func(_ context.Context, tx Tx) error {
+		return f(tx)
+	})
+}
+
+// WithAdvisoryLockTx executes f in the transaction that owns the lock.
+func (c *Client) WithAdvisoryLockTx(
+	ctx context.Context,
+	id AdvisoryLock,
+	f ExecFunc[Tx],
+) error {
+	return c.withAdvisoryLockTx(ctx, id, f)
+}
+
+func (c *Client) withAdvisoryLockTx(
+	ctx context.Context,
+	id AdvisoryLock,
+	f ExecFunc[Tx],
+) error {
 	var (
 		rootSpan = trace.SpanFromContext(ctx)
 		span     trace.Span
@@ -703,7 +759,7 @@ func (c *Client) WithAdvisoryLock(
 				return err
 			}
 
-			err = f(tx)
+			err = f(txCtx, tx)
 			if err != nil {
 				if rootSpan.IsRecording() {
 					span.SetStatus(codes.Error, err.Error())
@@ -720,12 +776,16 @@ func (c *Client) WithAdvisoryLock(
 
 func (c *Client) RefreshTypes(ctx context.Context) error {
 	conns := c.pool.AcquireAllIdle(ctx)
+	var refreshErr error
 	for _, conn := range conns {
 		if err := conn.Conn().Close(ctx); err != nil {
-			return fmt.Errorf("cannot refresh postgresql type: %w", err)
+			refreshErr = errors.Join(
+				refreshErr,
+				fmt.Errorf("cannot refresh postgresql type: %w", err),
+			)
 		}
 		conn.Release()
 	}
 
-	return nil
+	return refreshErr
 }

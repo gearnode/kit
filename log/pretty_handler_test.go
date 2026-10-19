@@ -214,4 +214,6 @@ func TestBufferPool(t *testing.T) {
 
 	buf2 := getBuffer()
 	assert.NotNil(t, buf2)
+	assert.Empty(t, buf2.String())
+	freeBuffer(buf2)
 }

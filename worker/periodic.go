@@ -18,6 +18,8 @@ package worker
 
 import (
 	"context"
+	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -142,7 +144,7 @@ func NewPeriodic(name string, handler PeriodicHandler, logger *log.Logger, opts 
 		tracer: o.tracerProvider.Tracer(
 			tracerName,
 			trace.WithInstrumentationVersion(
-				version.New(0).Alpha(1),
+				version.Current(),
 			),
 		),
 		interval:     o.interval,
@@ -188,10 +190,8 @@ func (w *PeriodicWorker) Run(ctx context.Context) error {
 }
 
 func (w *PeriodicWorker) run(ctx context.Context) {
-	nonCancelableCtx := context.WithoutCancel(ctx)
-
 	runCtx, span := w.tracer.Start(
-		nonCancelableCtx,
+		ctx,
 		"periodic_worker.run",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
@@ -201,10 +201,30 @@ func (w *PeriodicWorker) run(ctx context.Context) {
 	defer span.End()
 
 	start := time.Now()
+	status := "succeeded"
+	defer func() {
+		duration := time.Since(start)
+		if rvr := recover(); rvr != nil {
+			status = "panicked"
+			err := fmt.Errorf("periodic worker panicked: %v", rvr)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			stack := make([]byte, 4096)
+			length := runtime.Stack(stack, false)
+			w.logger.ErrorCtx(
+				context.WithoutCancel(runCtx),
+				"run panicked",
+				log.Any("panic", rvr),
+				log.String("stacktrace", string(stack[:length])),
+				log.Duration("duration", duration),
+			)
+		}
+		w.runsTotal.WithLabelValues(w.name, status).Inc()
+		w.runDuration.WithLabelValues(w.name, status).Observe(duration.Seconds())
+	}()
+
 	err := w.handler.Run(runCtx)
 	duration := time.Since(start)
-
-	status := "succeeded"
 	if err != nil {
 		status = "failed"
 		span.RecordError(err)
@@ -222,7 +242,4 @@ func (w *PeriodicWorker) run(ctx context.Context) {
 			log.Duration("duration", duration),
 		)
 	}
-
-	w.runsTotal.WithLabelValues(w.name, status).Inc()
-	w.runDuration.WithLabelValues(w.name, status).Observe(duration.Seconds())
 }

@@ -53,8 +53,8 @@ type (
 	Format = string
 
 	// Match is a function that determines whether a log message
-	// should be logged. Return true to log the message, false to
-	// skip it.
+	// should be skipped. Return true to skip the message and false
+	// to log it.
 	Match func(level Level, msg string, attrs []Attr) bool
 )
 
@@ -107,8 +107,8 @@ func WithFormat(format Format) Option {
 	}
 }
 
-// WithMatch sets a match function that determines whether a log
-// message should be logged. If the match returns false, the message
+// SkipMatch sets a match function that determines whether a log
+// message should be skipped. If the match returns true, the message
 // is skipped.
 func SkipMatch(match Match) Option {
 	return func(l *Logger) {

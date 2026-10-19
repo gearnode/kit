@@ -284,7 +284,7 @@ func TestHTTPServer_Metrics(t *testing.T) {
 		require.NoError(t, err)
 		_, err = io.Copy(io.Discard, resp.Body)
 		require.NoError(t, err)
-		resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 	}
 
 	// Check metrics
@@ -335,14 +335,14 @@ func TestHTTPServer_Logging(t *testing.T) {
 	require.NoError(t, err)
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 
 	// Make an error request
 	resp, err = http.Get(ts.URL + "/error")
 	require.NoError(t, err)
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 
 	// Check logs
 	logOutput := logBuf.String()

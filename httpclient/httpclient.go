@@ -45,8 +45,10 @@ type (
 		logger         *log.Logger
 		registerer     prometheus.Registerer
 
-		ssrfProtection    bool
-		ssrfAllowLoopback bool
+		ssrfProtection        bool
+		ssrfAllowLoopback     bool
+		clientTimeout         time.Duration
+		responseHeaderTimeout time.Duration
 	}
 )
 
@@ -100,6 +102,9 @@ func WithRegisterer(r prometheus.Registerer) Option {
 // differs from the original request, blocking redirect-based
 // pivots.
 //
+// Environment-configured HTTP proxies are disabled because a proxy
+// hides the destination peer address from the protected dialer.
+//
 // Use this option whenever the destination URL is influenced by
 // untrusted input (for example, customer-supplied webhook
 // endpoints or OAuth2 token URLs).
@@ -117,6 +122,14 @@ func WithSSRFAllowLoopback() Option {
 	return func(o *Options) {
 		o.ssrfAllowLoopback = true
 	}
+}
+
+func WithTimeout(timeout time.Duration) Option {
+	return func(o *Options) { o.clientTimeout = timeout }
+}
+
+func WithResponseHeaderTimeout(timeout time.Duration) Option {
+	return func(o *Options) { o.responseHeaderTimeout = timeout }
 }
 
 // DefaultTransport returns a new http.Transport with similar default
@@ -167,7 +180,7 @@ func DefaultPooledClient(options ...Option) *http.Client {
 }
 
 func buildClient(rt http.RoundTripper, opts *Options) *http.Client {
-	c := &http.Client{Transport: rt}
+	c := &http.Client{Transport: rt, Timeout: opts.clientTimeout}
 	if opts.ssrfProtection {
 		c.CheckRedirect = noCrossOriginRedirects
 	}
@@ -180,14 +193,17 @@ func createBaseTransport(opts *Options) *http.Transport {
 		KeepAlive: 30 * time.Second,
 		DualStack: true,
 	}
+	proxy := http.ProxyFromEnvironment
 	if opts.ssrfProtection {
 		dial.Control = makeSSRFDialControl(opts.ssrfAllowLoopback)
+		proxy = nil
 	}
 
 	return &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		Proxy:                 proxy,
 		DialContext:           dial.DialContext,
 		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: opts.responseHeaderTimeout,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ForceAttemptHTTP2:     true,
@@ -196,9 +212,11 @@ func createBaseTransport(opts *Options) *http.Transport {
 
 func configureOptions(options []Option) *Options {
 	opts := &Options{
-		logger:         log.NewLogger(log.WithOutput(io.Discard)),
-		tracerProvider: otel.GetTracerProvider(),
-		registerer:     prometheus.DefaultRegisterer,
+		logger:                log.NewLogger(log.WithOutput(io.Discard)),
+		tracerProvider:        otel.GetTracerProvider(),
+		registerer:            prometheus.DefaultRegisterer,
+		clientTimeout:         30 * time.Second,
+		responseHeaderTimeout: 15 * time.Second,
 	}
 
 	for _, o := range options {

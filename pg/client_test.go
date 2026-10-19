@@ -154,6 +154,33 @@ func TestNewClient(t *testing.T) {
 		},
 	)
 
+	t.Run("invalid pool sizes", func(t *testing.T) {
+		_, err := pg.NewClient(pg.WithPoolSize(0), pg.WithRegisterer(prometheus.NewRegistry()))
+		require.Error(t, err)
+		_, err = pg.NewClient(
+			pg.WithPoolSize(1), pg.WithMinPoolSize(2),
+			pg.WithRegisterer(prometheus.NewRegistry()),
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("require verified TLS", func(t *testing.T) {
+		_, err := pg.NewClient(pg.WithRequireTLS(), pg.WithRegisterer(prometheus.NewRegistry()))
+		require.Error(t, err)
+		_, err = pg.NewClient(
+			pg.WithRequireTLS(), pg.WithUnsecureTLS(),
+			pg.WithRegisterer(prometheus.NewRegistry()),
+		)
+		require.Error(t, err)
+		client, err := pg.NewClient(
+			pg.WithRequireTLS(),
+			pg.WithTLS([]*x509.Certificate{selfSignedCert(t)}),
+			pg.WithRegisterer(prometheus.NewRegistry()),
+		)
+		require.NoError(t, err)
+		client.Close()
+	})
+
 	t.Run(
 		"with TLS option",
 		func(t *testing.T) {
@@ -282,6 +309,18 @@ func TestNewClient(t *testing.T) {
 			}
 		},
 	)
+
+	t.Run("duplicate metrics return error", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		first, err := pg.NewClient(pg.WithRegisterer(reg))
+		require.NoError(t, err)
+		first.Close()
+		assert.NotPanics(t, func() {
+			second, err := pg.NewClient(pg.WithRegisterer(reg))
+			require.Error(t, err)
+			assert.Nil(t, second)
+		})
+	})
 }
 
 // ---------------------------------------------------------------------------

@@ -106,7 +106,7 @@ func NewServer(addr string, h http.Handler, options ...Option) *http.Server {
 	tracer := opts.tracerProvider.Tracer(
 		"go.gearno.de/kit/httpserver",
 		trace.WithInstrumentationVersion(
-			version.New(0).Alpha(1),
+			version.Current(),
 		),
 	)
 

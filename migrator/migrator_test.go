@@ -15,17 +15,19 @@ import (
 	"go.gearno.de/kit/pg"
 )
 
-func newTestPGClient(t *testing.T) *pg.Client {
+func newTestPGClient(t *testing.T, extra ...pg.Option) *pg.Client {
 	t.Helper()
 
-	client, err := pg.NewClient(
+	options := []pg.Option{
 		pg.WithAddr("localhost:5432"),
 		pg.WithUser("kit"),
 		pg.WithPassword("kit"),
 		pg.WithDatabase("kit_test"),
 		pg.WithLogger(log.NewLogger(log.WithOutput(io.Discard))),
 		pg.WithRegisterer(prometheus.NewRegistry()),
-	)
+	}
+	options = append(options, extra...)
+	client, err := pg.NewClient(options...)
 	if err != nil {
 		t.Skipf("skipping: cannot create PostgreSQL client: %v", err)
 	}
@@ -45,6 +47,21 @@ func newTestPGClient(t *testing.T) *pg.Client {
 	t.Cleanup(client.Close)
 
 	return client
+}
+
+func TestMigrator_RunWithSingleConnection(t *testing.T) {
+	client := newTestPGClient(t, pg.WithPoolSize(1), pg.WithMinPoolSize(1))
+	dropTables(t, client, "schema_versions", "test_mig_single_connection")
+	t.Cleanup(func() { dropTables(t, client, "schema_versions", "test_mig_single_connection") })
+	disk := fstest.MapFS{
+		"migrations/001_create.sql": &fstest.MapFile{
+			Data: []byte("CREATE TABLE test_mig_single_connection (id serial PRIMARY KEY);"),
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	m := migrator.NewMigrator(client, disk, log.NewLogger(log.WithOutput(io.Discard)))
+	require.NoError(t, m.Run(ctx, "migrations"))
 }
 
 func dropTables(t *testing.T, client *pg.Client, tables ...string) {

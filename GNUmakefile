@@ -13,6 +13,7 @@
 # PERFORMANCE OF THIS SOFTWARE.
 
 GO ?= go
+GOFMT ?= gofmt
 GOIMPORTS ?= goimports
 GOLANGCI_LINT ?= golangci-lint
 
@@ -45,6 +46,10 @@ lint-goimports:
 		printf '%s\n' "$$diff"; \
 		exit 1; \
 	fi
+
+.PHONY: go-fmt
+go-fmt:
+	$(GO) fmt $(PACKAGES)
 
 .PHONY: test
 test:
