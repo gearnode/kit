@@ -24,7 +24,7 @@ Kit provides foundational packages for building production-grade Go services wit
 
 ## Requirements
 
-- Go 1.25+
+- Go 1.26+
 
 ## Installation
 
@@ -35,6 +35,14 @@ go get go.gearno.de/kit
 ## Documentation
 
 See the [Go package documentation](https://pkg.go.dev/go.gearno.de/kit) for API reference and examples.
+
+## Production safety
+
+- Enable `httpclient.WithSSRFProtection` whenever users can influence URLs.
+- Use `pg.WithTLS` and `pg.WithRequireTLS` for non-local databases.
+- SQL query text is excluded from traces by default.
+- Metrics bind to loopback and OTLP/HTTP uses verified TLS by default.
+- Outbound requests have bounded response-header and total timeouts.
 
 ## Contributing
 

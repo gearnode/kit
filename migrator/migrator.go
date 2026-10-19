@@ -71,21 +71,15 @@ func (m *Migrator) Run(ctx context.Context, dirname string) error {
 		return nil
 	}
 
-	err := m.pg.WithAdvisoryLock(
+	err := m.pg.WithAdvisoryLockTx(
 		ctx,
 		MigrationAdvisoryLock,
-		func(conn pg.Querier) error {
-			err := m.pg.WithConn(
-				ctx,
-				func(connCtx context.Context, conn pg.Querier) error {
-					return createIfNotExistVersionsTable(connCtx, conn)
-				},
-			)
-			if err != nil {
+		func(txCtx context.Context, tx pg.Tx) error {
+			if err := createIfNotExistVersionsTable(txCtx, tx); err != nil {
 				return fmt.Errorf("cannot create schema version table: %w", err)
 			}
 
-			appliedVersions, err := loadSchemaVersions(ctx, conn)
+			appliedVersions, err := loadSchemaVersions(txCtx, tx)
 			if err != nil {
 				return fmt.Errorf("cannot load schema versions: %w", err)
 			}
@@ -97,10 +91,10 @@ func (m *Migrator) Run(ctx context.Context, dirname string) error {
 
 				m.logger.Info("applying migration", log.String("version", migration.Version))
 
-				err := m.pg.WithTx(
-					ctx,
-					func(txCtx context.Context, tx pg.Tx) error {
-						return migration.Apply(txCtx, tx)
+				err := tx.Savepoint(
+					txCtx,
+					func(savepointCtx context.Context, savepoint pg.Tx) error {
+						return migration.Apply(savepointCtx, savepoint)
 					},
 				)
 				if err != nil {

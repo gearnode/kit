@@ -112,6 +112,17 @@ func TestHTTPServer_BasicOperation(t *testing.T) {
 	}
 }
 
+func TestHTTPServer_DoesNotCreateConnectionSpans(t *testing.T) {
+	server := NewServer(
+		":8080",
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		WithRegisterer(prometheus.NewRegistry()),
+	)
+
+	assert.Nil(t, server.ConnContext)
+	assert.Nil(t, server.ConnState)
+}
+
 // mockPanicHandler is a handler that always panics
 type mockPanicHandler struct{}
 
@@ -284,7 +295,7 @@ func TestHTTPServer_Metrics(t *testing.T) {
 		require.NoError(t, err)
 		_, err = io.Copy(io.Discard, resp.Body)
 		require.NoError(t, err)
-		resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 	}
 
 	// Check metrics
@@ -335,14 +346,14 @@ func TestHTTPServer_Logging(t *testing.T) {
 	require.NoError(t, err)
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 
 	// Make an error request
 	resp, err = http.Get(ts.URL + "/error")
 	require.NoError(t, err)
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 
 	// Check logs
 	logOutput := logBuf.String()

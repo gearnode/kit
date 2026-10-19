@@ -169,3 +169,36 @@ func TestPeriodicWorkerContinuesAfterError(t *testing.T) {
 	cancel()
 	require.ErrorIs(t, <-done, context.Canceled)
 }
+
+func TestPeriodicWorkerContinuesAfterPanic(t *testing.T) {
+	var calls atomic.Int64
+	h := &periodicHandler{runFn: func(context.Context) error {
+		if calls.Add(1) == 1 {
+			panic("transient panic")
+		}
+		return nil
+	}}
+	w := worker.NewPeriodic("test", h, testLogger(), testWorkerOpts()...)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+	require.Eventually(t, func() bool { return calls.Load() >= 2 }, 2*time.Second, 5*time.Millisecond)
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+}
+
+func TestPeriodicWorkerCancelsInFlightRun(t *testing.T) {
+	started := make(chan struct{})
+	h := &periodicHandler{runFn: func(ctx context.Context) error {
+		close(started)
+		<-ctx.Done()
+		return context.Cause(ctx)
+	}}
+	w := worker.NewPeriodic("test", h, testLogger(), testWorkerOpts()...)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+	<-started
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+}

@@ -42,9 +42,13 @@ func RenderText(w http.ResponseWriter, statusCode int, v string) {
 }
 
 func RenderError(w http.ResponseWriter, statusCode int, err error) {
+	message := err.Error()
+	if statusCode >= http.StatusInternalServerError {
+		message = http.StatusText(statusCode)
+	}
 	response := map[string]string{
 		"error":   strings.ReplaceAll(strings.ToLower(http.StatusText(statusCode)), " ", "_"),
-		"message": err.Error(),
+		"message": message,
 	}
 
 	RenderJSON(w, statusCode, response)

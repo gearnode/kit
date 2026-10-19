@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Harden PostgreSQL pool cleanup, metrics registration, TLS validation, and migration locking.
+- Prevent HTTP SSRF proxy bypasses and redact sensitive telemetry and error responses.
+- Remove connection-level HTTP spans that incorrectly parent unrelated keep-alive requests.
+- Propagate shutdown cancellation, bound shutdown and HTTP waits, and recover worker panics.
+- Use secure telemetry defaults and redact secrets from printed configuration.
+
+### Security
+
+- Omit SQL query text from traces by default and reduce attacker-controlled telemetry cardinality.
+- Pin CI tools, run race-enabled tests, and scan dependencies with `govulncheck`.
+
 ## [0.11.0] - 2026-05-25
 
 ### Added
@@ -27,7 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **httpclient**: Retry round tripper with exponential backoff and jitter for transient failures (5xx, 429, and connection errors). Enabled via `WithMaxRetries`, `WithRetryMinWait`, and `WithRetryMaxWait` options.
 - **pg**: `WithMaxConnLifetimeJitter` option to smear connection recycle events and avoid synchronized reconnect storms. Defaults to 5 minutes; pass `0` to disable.
 - **pg**: `WithHealthCheckPeriod` option to tune how often the pool checks idle connections and enforces MinConns/MaxConnIdleTime/MaxConnLifetime. A zero value leaves the pgx default (1 minute) in place.
 

@@ -17,19 +17,14 @@
 package httpserver
 
 import (
-	"context"
 	"io"
 	stdlog "log"
-	"net"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"go.gearno.de/kit/internal/version"
 	"go.gearno.de/kit/log"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -103,15 +98,6 @@ func NewServer(addr string, h http.Handler, options ...Option) *http.Server {
 		opts.registerer,
 	)
 
-	tracer := opts.tracerProvider.Tracer(
-		"go.gearno.de/kit/httpserver",
-		trace.WithInstrumentationVersion(
-			version.New(0).Alpha(1),
-		),
-	)
-
-	connSpans := &sync.Map{}
-
 	return &http.Server{
 		Addr:              addr,
 		Handler:           handler,
@@ -120,22 +106,5 @@ func NewServer(addr string, h http.Handler, options ...Option) *http.Server {
 		ReadTimeout:       opts.readTimeout,
 		WriteTimeout:      opts.writeTimeout,
 		IdleTimeout:       15 * time.Second,
-		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			ctx, span := tracer.Start(ctx, "http.connection",
-				trace.WithSpanKind(trace.SpanKindServer),
-				trace.WithAttributes(
-					attribute.String("net.peer.addr", c.RemoteAddr().String()),
-				),
-			)
-			connSpans.Store(c, span)
-			return ctx
-		},
-		ConnState: func(c net.Conn, state http.ConnState) {
-			if state == http.StateClosed || state == http.StateHijacked {
-				if span, ok := connSpans.LoadAndDelete(c); ok {
-					span.(trace.Span).End()
-				}
-			}
-		},
 	}
 }

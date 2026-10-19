@@ -252,10 +252,10 @@ func TestWorkerContinuesAfterClaimPanic(t *testing.T) {
 	h := &testHandler{
 		claimFn: func(ctx context.Context) (int, error) {
 			n := claimCalls.Add(1)
-			switch {
-			case n == 1:
+			switch n {
+			case 1:
 				panic("database driver bug")
-			case n == 2:
+			case 2:
 				return 42, nil
 			default:
 				return 0, worker.ErrNoTask
@@ -327,10 +327,10 @@ func TestWorkerContinuesAfterClaimError(t *testing.T) {
 	h := &testHandler{
 		claimFn: func(ctx context.Context) (int, error) {
 			n := claimCalls.Add(1)
-			switch {
-			case n == 1:
+			switch n {
+			case 1:
 				return 0, errors.New("database connection lost")
-			case n == 2:
+			case 2:
 				return 42, nil
 			default:
 				return 0, worker.ErrNoTask

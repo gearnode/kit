@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -66,8 +67,9 @@ type (
 	}
 
 	Config struct {
-		Metrics MetricsConfig `json:"metrics"`
-		Tracing TracingConfig `json:"tracing"`
+		Metrics         MetricsConfig `json:"metrics"`
+		Tracing         TracingConfig `json:"tracing"`
+		ShutdownTimeout int           `json:"shutdown-timeout"`
 	}
 
 	MetricsConfig struct {
@@ -75,12 +77,14 @@ type (
 	}
 
 	TracingConfig struct {
-		Addr          string  `json:"addr"`
-		MaxBatchSize  int     `json:"max-batch-size"`
-		BatchTimeout  int     `json:"batch-timeout"`
-		ExportTimeout int     `json:"export-timeout"`
-		MaxQueueSize  int     `json:"max-queue-size"`
-		SamplingRatio float64 `json:"sampling-ratio"`
+		Addr          string            `json:"addr"`
+		Insecure      bool              `json:"insecure"`
+		Headers       map[string]string `json:"headers,omitempty"`
+		MaxBatchSize  int               `json:"max-batch-size"`
+		BatchTimeout  int               `json:"batch-timeout"`
+		ExportTimeout int               `json:"export-timeout"`
+		MaxQueueSize  int               `json:"max-queue-size"`
+		SamplingRatio float64           `json:"sampling-ratio"`
 	}
 )
 
@@ -91,16 +95,17 @@ func NewUnit(main Runnable, name, version, environment string) *Unit {
 		environment: environment,
 		main:        main,
 		config: &Config{
+			ShutdownTimeout: 30,
 			Metrics: MetricsConfig{
-				Addr: ":9090",
+				Addr: "127.0.0.1:9090",
 			},
 			Tracing: TracingConfig{
-				Addr:          ":4317",
+				Addr:          "localhost:4318",
 				MaxBatchSize:  1024,
 				BatchTimeout:  10,
 				ExportTimeout: 15,
 				MaxQueueSize:  5000,
-				SamplingRatio: 1.0,
+				SamplingRatio: 0.1,
 			},
 		},
 	}
@@ -135,16 +140,29 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 		}
 	}
 
+	if err := u.config.Validate(); err != nil {
+		return fmt.Errorf("invalid unit configuration: %w", err)
+	}
+	switch log.Format(*format) {
+	case log.FormatJSON, log.FormatPretty, log.FormatText:
+	default:
+		return fmt.Errorf("unsupported log format %q", *format)
+	}
+
 	if *printCfg {
 		config := map[string]any{"unit": u.config}
 		if configurable, ok := u.main.(Configurable); ok {
 			config[u.name] = configurable.GetConfiguration()
 		}
+		redacted, err := redactConfiguration(config)
+		if err != nil {
+			return fmt.Errorf("cannot redact configuration: %w", err)
+		}
 
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "\t")
 
-		if err := encoder.Encode(config); err != nil {
+		if err := encoder.Encode(redacted); err != nil {
 			return fmt.Errorf("cannot encode configuration: %w", err)
 		}
 
@@ -165,8 +183,8 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 	defer cancel(context.Canceled)
 
 	wg := sync.WaitGroup{}
-	metricsInitialized := make(chan prometheus.Registerer)
-	tracingInitialized := make(chan trace.TracerProvider)
+	metricsInitialized := make(chan prometheus.Registerer, 1)
+	tracingInitialized := make(chan trace.TracerProvider, 1)
 
 	metricsServerCtx, stopMetricsServer := context.WithCancel(context.Background())
 	defer stopMetricsServer()
@@ -223,10 +241,20 @@ func (u *Unit) RunContext(parentCtx context.Context) error {
 
 	<-signalCtx.Done()
 
+	cancel(context.Canceled)
 	stopMetricsServer()
 	stopTracingExporter()
 
-	wg.Wait()
+	shutdownComplete := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(shutdownComplete)
+	}()
+	select {
+	case <-shutdownComplete:
+	case <-time.After(time.Duration(u.config.ShutdownTimeout) * time.Second):
+		return fmt.Errorf("shutdown timed out after %d seconds", u.config.ShutdownTimeout)
+	}
 
 	if cause := context.Cause(runCtx); cause != nil {
 		return cause
@@ -306,12 +334,11 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 
 	logger.InfoCtx(ctx, "starting traces exporter", log.String("addr", config.Addr))
 
-	otel.SetErrorHandler(&otelErrorHandler{logger: logger, ctx: ctx})
+	otel.SetErrorHandler(&otelErrorHandler{logger: logger})
 
-	exporter := otlptracehttp.NewUnstarted(
+	exporterOptions := []otlptracehttp.Option{
 		otlptracehttp.WithCompression(otlptracehttp.GzipCompression),
 		otlptracehttp.WithEndpoint(config.Addr),
-		otlptracehttp.WithInsecure(),
 		otlptracehttp.WithRetry(
 			otlptracehttp.RetryConfig{
 				Enabled:         true,
@@ -320,8 +347,15 @@ func (u *Unit) runTracingExporter(ctx context.Context, initialized chan<- trace.
 				MaxElapsedTime:  5 * time.Minute,
 			},
 		),
-		otlptracehttp.WithTimeout(15*time.Second),
-	)
+		otlptracehttp.WithTimeout(15 * time.Second),
+	}
+	if config.Insecure {
+		exporterOptions = append(exporterOptions, otlptracehttp.WithInsecure())
+	}
+	if len(config.Headers) > 0 {
+		exporterOptions = append(exporterOptions, otlptracehttp.WithHeaders(config.Headers))
+	}
+	exporter := otlptracehttp.NewUnstarted(exporterOptions...)
 
 	if err := exporter.Start(ctx); err != nil {
 		return fmt.Errorf("cannot create otel exporter: %w", err)
@@ -411,7 +445,10 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 	}
 
 	if _, ok := config["unit"]; ok {
-		encoded, _ := json.Marshal(config["unit"])
+		encoded, err := json.Marshal(config["unit"])
+		if err != nil {
+			return fmt.Errorf("cannot encode %q config section: %w", "unit", err)
+		}
 		if err := json.Unmarshal(encoded, u.config); err != nil {
 			return fmt.Errorf("cannot decode %q config section: %w", "unit", err)
 		}
@@ -419,7 +456,10 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 
 	if configurable, ok := u.main.(Configurable); ok {
 		if _, ok := config[u.name]; ok {
-			encoded, _ := json.Marshal(config[u.name])
+			encoded, err := json.Marshal(config[u.name])
+			if err != nil {
+				return fmt.Errorf("cannot encode %q config section: %w", u.name, err)
+			}
 			if err := json.Unmarshal(encoded, configurable.GetConfiguration()); err != nil {
 				return fmt.Errorf("cannot decode %q config section: %w", u.name, err)
 			}
@@ -427,4 +467,72 @@ func (u *Unit) loadConfigurationFromFile(filename string) error {
 	}
 
 	return nil
+}
+
+func (c *Config) Validate() error {
+	if c == nil {
+		return errors.New("configuration is nil")
+	}
+	if c.ShutdownTimeout < 1 {
+		return errors.New("shutdown-timeout must be greater than zero")
+	}
+	if _, _, err := net.SplitHostPort(c.Metrics.Addr); err != nil {
+		return fmt.Errorf("invalid metrics address %q: %w", c.Metrics.Addr, err)
+	}
+	if _, _, err := net.SplitHostPort(c.Tracing.Addr); err != nil {
+		return fmt.Errorf("invalid tracing address %q: %w", c.Tracing.Addr, err)
+	}
+	if c.Tracing.MaxBatchSize < 1 {
+		return errors.New("tracing max-batch-size must be greater than zero")
+	}
+	if c.Tracing.MaxQueueSize < c.Tracing.MaxBatchSize {
+		return errors.New("tracing max-queue-size must be greater than or equal to max-batch-size")
+	}
+	if c.Tracing.BatchTimeout < 1 || c.Tracing.ExportTimeout < 1 {
+		return errors.New("tracing timeouts must be greater than zero")
+	}
+	if c.Tracing.SamplingRatio < 0 || c.Tracing.SamplingRatio > 1 {
+		return errors.New("tracing sampling-ratio must be between zero and one")
+	}
+	return nil
+}
+
+func redactConfiguration(config any) (any, error) {
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		return nil, err
+	}
+	var normalized any
+	if err := json.Unmarshal(encoded, &normalized); err != nil {
+		return nil, err
+	}
+	redactValue(normalized)
+	return normalized, nil
+}
+
+func redactValue(value any) {
+	switch value := value.(type) {
+	case map[string]any:
+		for key, child := range value {
+			if sensitiveConfigKey(key) {
+				value[key] = "[REDACTED]"
+			} else {
+				redactValue(child)
+			}
+		}
+	case []any:
+		for _, child := range value {
+			redactValue(child)
+		}
+	}
+}
+
+func sensitiveConfigKey(key string) bool {
+	key = strings.ToLower(key)
+	for _, marker := range []string{"authorization", "cookie", "credential", "password", "private-key", "secret", "token"} {
+		if strings.Contains(key, marker) {
+			return true
+		}
+	}
+	return false
 }

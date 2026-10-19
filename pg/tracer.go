@@ -33,7 +33,8 @@ import (
 
 type (
 	tracer struct {
-		tracer trace.Tracer
+		tracer          trace.Tracer
+		recordQueryText bool
 	}
 )
 
@@ -60,7 +61,7 @@ const (
 
 	// SQLStateKey represents PostgreSQL error code,
 	// see https://www.postgresql.org/docs/current/errcodes-appendix.html.
-	SQLStateKey = attribute.Key("db.response.status_code")
+	SQLStateKey = attribute.Key("db.postgresql.sql_state")
 )
 
 func connectionConfigAttributes(config *pgx.ConnConfig) []trace.SpanStartOption {
@@ -104,6 +105,14 @@ func recordError(span trace.Span, err error) {
 	}
 }
 
+func (t *tracer) queryAttributes(sql string) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{semconv.DBOperationName(sqlOperationName(sql))}
+	if t.recordQueryText {
+		attrs = append(attrs, semconv.DBQueryText(sql))
+	}
+	return attrs
+}
+
 func (t *tracer) TraceQueryStart(
 	ctx context.Context,
 	conn *pgx.Conn,
@@ -113,13 +122,9 @@ func (t *tracer) TraceQueryStart(
 		return ctx
 	}
 
-	operationName := sqlOperationName(data.SQL)
 	opts := []trace.SpanStartOption{
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			semconv.DBOperationName(operationName),
-			semconv.DBQueryText(data.SQL),
-		),
+		trace.WithAttributes(t.queryAttributes(data.SQL)...),
 	}
 
 	if conn != nil {
@@ -195,13 +200,9 @@ func (t *tracer) TraceBatchQuery(
 		return
 	}
 
-	operationName := sqlOperationName(data.SQL)
 	opts := []trace.SpanStartOption{
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			semconv.DBOperationName(operationName),
-			semconv.DBQueryText(data.SQL),
-		),
+		trace.WithAttributes(t.queryAttributes(data.SQL)...),
 	}
 
 	if conn != nil {
@@ -288,13 +289,9 @@ func (t *tracer) TracePrepareStart(
 		return ctx
 	}
 
-	operationName := sqlOperationName(data.SQL)
 	opts := []trace.SpanStartOption{
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			semconv.DBOperationName(operationName),
-			semconv.DBQueryText(data.SQL),
-		),
+		trace.WithAttributes(t.queryAttributes(data.SQL)...),
 	}
 
 	if conn != nil {
