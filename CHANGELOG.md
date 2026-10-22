@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-22
+
+### Added
+
+- **pg**: `Client.Listen` subscribes to a PostgreSQL channel on a dedicated connection that reuses the client's address, credentials, TLS, and tracing. `Client.Notify` publishes a payload on a pooled connection.
+
+### Changed
+
+- **log**: `ErrorCtx` logs a canceled context at warn level. A client disconnect is not a server failure. Deadline exceeded stays at error.
+
+## [0.13.1] - 2026-06-18
+
+### Fixed
+
+- **unit**: Keep the signal context separate from the run context, so a shutdown signal cancels the process without replacing the run context's cause.
+
+## [0.13.0] - 2026-06-18
+
+### Changed
+
+- **unit**: `RunContext` returns `context.Canceled` after a shutdown signal.
+
+## [0.12.0] - 2026-06-18
+
+### Added
+
+- **worker**: Recover panics while claiming and processing tasks, and while recovering stale tasks, and record them instead of crashing the process.
+
 ## [0.11.0] - 2026-05-25
 
 ### Added

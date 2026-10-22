@@ -72,7 +72,8 @@ type (
 
 		tlsConfig *tls.Config
 
-		pool *pgxpool.Pool
+		pool       *pgxpool.Pool
+		connConfig *pgx.ConnConfig
 
 		tracerProvider trace.TracerProvider
 		tracer         trace.Tracer
@@ -475,6 +476,10 @@ func NewClient(options ...Option) (*Client, error) {
 	}
 
 	config.ConnConfig.Tracer = multitracer.New(tracers...)
+
+	// LISTEN holds a connection for its whole lifetime, so it cannot come
+	// from the pool. Keep a copy of the same connection settings.
+	c.connConfig = config.ConnConfig.Copy()
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {

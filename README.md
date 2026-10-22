@@ -16,7 +16,7 @@ Kit provides foundational packages for building production-grade Go services wit
 |---------|-------------|
 | `unit` | Application lifecycle, configuration, signal handling, and graceful shutdown |
 | `log` | Structured logging with `slog`, trace correlation, and multiple output formats |
-| `pg` | PostgreSQL client with connection pooling, tracing, and metrics |
+| `pg` | PostgreSQL client with connection pooling, LISTEN/NOTIFY, tracing, and metrics |
 | `migrator` | Database schema migrations with advisory locking |
 | `httpserver` | HTTP server with request tracing and metrics |
 | `httpclient` | HTTP client with telemetry and connection management |
