@@ -168,6 +168,17 @@ func newHandlerWrapper(
 
 // TODO X-Forwaded-* support
 func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if err := checkHeadersLen(r); err != nil {
+		hw.logger.ErrorCtx(r.Context(), "invalid header length", log.Error(err))
+
+		w.Header().Set("content-type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusRequestHeaderFieldsTooLarge)
+		if _, err := w.Write([]byte("{}")); err != nil {
+			hw.logger.ErrorCtx(r.Context(), "cannot write body", log.Error(err))
+		}
+		return
+	}
+
 	// Bypass for OPTIONS request to avoid telemetry, metrics and
 	// logging noise.
 	if r.Method == http.MethodOptions {

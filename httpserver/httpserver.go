@@ -118,6 +118,7 @@ func NewServer(addr string, h http.Handler, options ...Option) *http.Server {
 		ErrorLog:          stdlog.New(logger.NewWriter(log.LevelError), "", 0),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       opts.readTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
 		WriteTimeout:      opts.writeTimeout,
 		IdleTimeout:       15 * time.Second,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {

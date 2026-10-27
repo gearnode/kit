@@ -395,3 +395,71 @@ func TestHTTPServer_Health(t *testing.T) {
 	logOutput := logBuf.String()
 	assert.NotContains(t, logOutput, "/health")
 }
+
+func TestHTTPServer_MaxHeaderBytes(t *testing.T) {
+	server := NewServer(":8080", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		WithRegisterer(prometheus.NewRegistry()),
+	)
+	assert.Equal(t, 100<<10, server.MaxHeaderBytes)
+}
+
+func TestHTTPServer_HeaderValueLimit(t *testing.T) {
+	tests := []struct {
+		name   string
+		host   string
+		header string
+		value  string
+		want   string
+	}{
+		{
+			name: "host",
+			host: strings.Repeat("a", maxHostLen+1),
+			want: "Host",
+		},
+		{
+			name:   "value",
+			header: "Cookie",
+			value:  strings.Repeat("c", maxHeaderValueLen+1),
+			want:   "Cookie",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				called = true
+			})
+
+			var logBuf bytes.Buffer
+			server := NewServer(":8080", handler,
+				WithLogger(log.NewLogger(log.WithOutput(&logBuf))),
+				WithRegisterer(prometheus.NewRegistry()),
+			)
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			if tt.host != "" {
+				req.Host = tt.host
+			}
+			if tt.header != "" {
+				req.Header.Set(tt.header, tt.value)
+			}
+
+			rec := httptest.NewRecorder()
+			server.Handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusRequestHeaderFieldsTooLarge, rec.Code)
+			assert.False(t, called)
+			assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("content-type"))
+			assert.Equal(t, "{}", rec.Body.String())
+			assert.Contains(t, logBuf.String(), "header value too long: "+tt.want)
+
+			absent := tt.host
+			if tt.value != "" {
+				absent = tt.value
+			}
+			assert.NotContains(t, logBuf.String(), absent)
+			assert.NotContains(t, rec.Body.String(), absent)
+		})
+	}
+}
