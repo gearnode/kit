@@ -178,7 +178,6 @@ func createBaseTransport(opts *Options) *http.Transport {
 	dial := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
-		DualStack: true,
 	}
 	if opts.ssrfProtection {
 		dial.Control = makeSSRFDialControl(opts.ssrfAllowLoopback)
