@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-28
+
+### Changed
+
+- **httpserver**: `NewServer` limits the request line and headers to 100 KiB. A `Host` longer than 260 bytes, or any other header value longer than 16 KiB, is rejected with HTTP 431 before telemetry, metrics, or the application handler run. The rejected value is not written to the log.
+- **httpclient**: The client no longer sets the deprecated `Dialer.DualStack` field. Fast Fallback has been the default since Go 1.12, so dial behavior is unchanged.
+
 ## [0.14.0] - 2026-10-22
 
 ### Added
